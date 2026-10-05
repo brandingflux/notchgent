@@ -1,0 +1,18 @@
+{
+  "port": 5151,
+  "hotkeys": {
+    "enabled": true,
+    "approve": "f8",
+    "deny": "f9"
+  },
+  "window": {
+    "always_on_top": true,
+    "position": "top-center",
+    "opacity": 0.98,
+    "compact_width": 360,
+    "compact_height": 50,
+    "expanded_width": 560,
+    "expanded_height": 260
+  },
+  "auto_approve_timeout_seconds": 0
+}

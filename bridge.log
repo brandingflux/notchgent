@@ -1,0 +1,75 @@
+[2026-10-04 15:28:40] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:29:40] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:31:15] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:32:15] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:32:26] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:33:17] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:34:17] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:34:27] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:35:27] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:39:29] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:40:29] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:41:16] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:42:16] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:43:07] Forwarding toolCall 'run_command' to Notchgent HUD on port 4242
+[2026-10-04 15:44:07] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:44:29] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 4242
+[2026-10-04 15:45:29] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:45:35] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 4242
+[2026-10-04 15:46:35] Bridge error/timeout: timed out. Falling back to terminal prompt.
+[2026-10-04 15:46:57] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 15:46:59] Notchgent HUD connection failed: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>. Falling back to terminal prompt.
+[2026-10-04 15:48:57] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 15:49:08] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:51:09] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 15:51:14] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:51:35] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 15:51:38] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:51:52] Forwarding toolCall 'replace_file_content' to Notchgent HUD on port 5151
+[2026-10-04 15:51:56] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:52:14] Forwarding toolCall 'replace_file_content' to Notchgent HUD on port 5151
+[2026-10-04 15:52:27] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:52:34] Forwarding toolCall 'replace_file_content' to Notchgent HUD on port 5151
+[2026-10-04 15:52:37] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:52:47] Forwarding toolCall 'replace_file_content' to Notchgent HUD on port 5151
+[2026-10-04 15:52:50] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD"}
+[2026-10-04 15:54:23] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 15:55:18] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 15:56:00] Forwarding toolCall 'replace_file_content' to Notchgent HUD on port 5151
+[2026-10-04 15:56:55] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 15:57:14] Forwarding toolCall 'replace_file_content' to Notchgent HUD on port 5151
+[2026-10-04 15:58:10] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 16:00:07] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 16:01:02] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 16:01:18] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 16:02:13] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 16:07:10] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 16:07:38] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 16:09:15] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 16:10:10] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 16:11:55] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 16:12:50] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 16:19:32] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 16:20:27] Notchgent HUD replied with: {'decision': 'ask', 'reason': "Decision 'ask' from Notchgent HUD"}
+[2026-10-04 16:21:11] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 16:21:13] Notchgent HUD connection failed: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>. Falling back to terminal prompt.
+[2026-10-04 16:23:15] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 16:23:17] Notchgent HUD connection failed: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>. Falling back to terminal prompt.
+[2026-10-04 18:07:19] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 18:07:22] Notchgent HUD connection failed: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>. Falling back to terminal prompt.
+[2026-10-04 18:35:28] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 18:35:33] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:35:52] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 18:36:04] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:39:14] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 18:39:16] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:39:28] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 18:39:32] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:39:47] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 18:39:50] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:40:00] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 18:40:03] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:40:21] Forwarding toolCall 'write_to_file' to Notchgent HUD on port 5151
+[2026-10-04 18:40:25] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
+[2026-10-04 18:40:37] Forwarding toolCall 'run_command' to Notchgent HUD on port 5151
+[2026-10-04 18:40:40] Notchgent HUD replied with: {'decision': 'allow', 'reason': "Decision 'allow' from Notchgent HUD", 'permissionOverrides': ['*']}
