@@ -25,7 +25,7 @@ from PyQt6.QtCore import (
     Qt, QPoint, pyqtSignal, QObject, QTimer
 )
 from PyQt6.QtGui import (
-    QColor, QFont
+    QColor, QFont, QIcon
 )
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -47,7 +47,10 @@ except ImportError:
     PYNPUT_AVAILABLE = False
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):
+    SCRIPT_DIR = os.path.dirname(sys.executable)
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = os.path.join(SCRIPT_DIR, ".notchgent.pid")
 BRAIN_DIR = os.path.expanduser("~/.gemini/antigravity-cli/brain")
 
@@ -129,43 +132,26 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
 
 
 def force_foreground_window(hwnd: int) -> bool:
-    """Robustly brings hwnd to foreground, bypassing Windows focus-stealing restrictions."""
+    """Robustly brings hwnd to foreground using topmost-toggle and Alt-key unlock."""
     if not hwnd or not win32gui.IsWindow(hwnd):
         return False
-
-    fore = win32gui.GetForegroundWindow()
-    if fore == hwnd:
+    if win32gui.GetForegroundWindow() == hwnd:
         return True
 
-    # Simulate Alt key event to unlock Windows foreground lock
     try:
+        # 1. Briefly pulse HWND_TOPMOST then HWND_NOTOPMOST to elevate in DWM Z-order
+        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+        win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+
+        # 2. Simulate Alt key down/up to wake Windows foreground routing
         win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
         win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
-    except Exception:
-        pass
 
-    fore_thread, _ = win32process.GetWindowThreadProcessId(fore)
-    cur_thread = win32api.GetCurrentThreadId()
-
-    attached = False
-    if fore_thread and fore_thread != cur_thread:
-        try:
-            win32process.AttachThreadInput(fore_thread, cur_thread, True)
-            attached = True
-        except Exception:
-            pass
-
-    try:
+        # 3. Bring to top and set foreground
         win32gui.BringWindowToTop(hwnd)
         win32gui.SetForegroundWindow(hwnd)
     except Exception:
         pass
-    finally:
-        if attached:
-            try:
-                win32process.AttachThreadInput(fore_thread, cur_thread, False)
-            except Exception:
-                pass
 
     return win32gui.GetForegroundWindow() == hwnd
 
@@ -189,18 +175,22 @@ def send_key_to_vscode(
             win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
             time.sleep(0.04)
 
-        # Focus VS Code for the keystroke
-        force_foreground_window(target_hwnd)
-        time.sleep(0.02)
+        # Robustly bring VS Code to foreground with retry
+        for _ in range(4):
+            if force_foreground_window(target_hwnd):
+                break
+            time.sleep(0.02)
 
-        # Send keystroke + enter using high-speed Win32 keybd_event
+        time.sleep(0.03)
+
+        # Send keystroke + enter using Win32 keybd_event
         vk = ord(key_text[0].upper()) if key_text else ord('1')
         win32api.keybd_event(vk, 0, 0, 0)
         win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.01)
+        time.sleep(0.02)
         win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
         win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.02)
+        time.sleep(0.06)
 
     except Exception:
         return False
@@ -216,19 +206,8 @@ def send_key_to_vscode(
         if movie_hwnd and win32gui.IsWindow(movie_hwnd) and movie_hwnd != target_hwnd:
             try:
                 force_foreground_window(movie_hwnd)
-                # Keep VS Code safely behind the movie window without pushing movie above Notchgent
                 win32gui.SetWindowPos(
                     target_hwnd, movie_hwnd,
-                    0, 0, 0, 0,
-                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
-                )
-            except Exception:
-                pass
-        elif not was_minimized:
-            # Fallback: push VS Code to the back so it does not cover the movie/active app
-            try:
-                win32gui.SetWindowPos(
-                    target_hwnd, win32con.HWND_BOTTOM,
                     0, 0, 0, 0,
                     win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
                 )
@@ -382,8 +361,8 @@ class TranscriptWatcher(QObject):
                         "workspace_hints": workspace_hints
                     })
 
-            # If the last entry is GENERIC or USER_INPUT, the tool execution finished!
-            elif step_type in ("GENERIC", "USER_INPUT") or (step_type == "PLANNER_RESPONSE" and not last_obj.get("tool_calls")):
+            # If the last entry is GENERIC, USER_INPUT, or SYSTEM_MESSAGE, the tool execution finished!
+            elif step_type in ("GENERIC", "USER_INPUT", "SYSTEM_MESSAGE") or (step_type == "PLANNER_RESPONSE" and not last_obj.get("tool_calls")):
                 if self.currently_pending:
                     self.currently_pending = False
                     self.action_cleared.emit()
@@ -403,6 +382,18 @@ class NotchgentHUD(QWidget):
         self.last_user_hwnd = None
         self.pending_movie_hwnd = None
         self.current_workspace_hints: List[str] = []
+        self.pinned_y = 12
+        self.pinned_center_x = None
+
+        self.sound_mode = "beep"
+        config_path = os.path.join(SCRIPT_DIR, "config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    self.sound_mode = str(cfg.get("sound", "beep")).lower()
+            except Exception:
+                pass
 
         self.setup_ui()
         self.setup_watcher()
@@ -426,8 +417,9 @@ class NotchgentHUD(QWidget):
         self.frame = QFrame(self)
         self.frame.setObjectName("MainFrame")
         self.frame_layout = QVBoxLayout(self.frame)
-        self.frame_layout.setContentsMargins(16, 4, 16, 4)
-        self.frame_layout.setSpacing(6)
+        self.frame_layout.setContentsMargins(16, 7, 16, 7)
+        self.frame_layout.setSpacing(8)
+        self.frame_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Drop Shadow
         shadow = QGraphicsDropShadowEffect(self)
@@ -438,6 +430,7 @@ class NotchgentHUD(QWidget):
 
         # --- Compact Header Bar (Always visible) ---
         self.header_widget = QWidget()
+        self.header_widget.setFixedHeight(26)
         self.header_layout = QHBoxLayout(self.header_widget)
         self.header_layout.setContentsMargins(0, 0, 0, 0)
         self.header_layout.setSpacing(8)
@@ -611,12 +604,22 @@ class NotchgentHUD(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self.drag_pos = event.globalPosition().toPoint() - self.pos()
             event.accept()
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton and not self.drag_pos.isNull():
-            self.move(event.globalPosition().toPoint() - self.drag_pos)
+            new_pos = event.globalPosition().toPoint() - self.drag_pos
+            self.move(new_pos)
+            self.pinned_center_x = new_pos.x() + self.width() // 2
+            self.pinned_y = new_pos.y()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.pinned_center_x = self.x() + self.width() // 2
+            self.pinned_y = self.y()
+            self.drag_pos = QPoint()
             event.accept()
 
     def ensure_topmost(self):
@@ -634,10 +637,12 @@ class NotchgentHUD(QWidget):
     def collapse(self):
         self.is_expanded = False
         self.expanded_widget.hide()
-        screen = QApplication.primaryScreen().geometry()
-        w, h = 390, 52
-        x = (screen.width() - w) // 2
-        y = self.y() if self.y() > 0 else 12
+        w, h = 390, 48
+        if self.pinned_center_x is None:
+            screen = QApplication.primaryScreen().geometry()
+            self.pinned_center_x = screen.width() // 2
+        x = self.pinned_center_x - w // 2
+        y = self.pinned_y
         self.setFixedSize(w, h)
         self.setGeometry(x, y, w, h)
         self.ensure_topmost()
@@ -645,10 +650,12 @@ class NotchgentHUD(QWidget):
     def expand(self):
         self.is_expanded = True
         self.expanded_widget.show()
-        screen = QApplication.primaryScreen().geometry()
-        w, h = 540, 230
-        x = (screen.width() - w) // 2
-        y = self.y() if self.y() > 0 else 12
+        w, h = 540, 224
+        if self.pinned_center_x is None:
+            screen = QApplication.primaryScreen().geometry()
+            self.pinned_center_x = screen.width() // 2
+        x = self.pinned_center_x - w // 2
+        y = self.pinned_y
         self.setFixedSize(w, h)
         self.setGeometry(x, y, w, h)
         self.ensure_topmost()
@@ -735,14 +742,18 @@ class NotchgentHUD(QWidget):
 
         self.details_box.setPlainText(details)
 
-        # Chime once for this step
+        # Subtle single beep once for this step (unless configured to 'none' or 'silent')
         if self.last_chime_step != step_idx:
             self.last_chime_step = step_idx
-            try:
-                import winsound
-                winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            except Exception:
-                pass
+            if self.sound_mode not in ("none", "silent", "off", "false", "0"):
+                def _play_subtle_beep():
+                    try:
+                        import winsound
+                        # 850 Hz, 45ms is a slight, subtle single electronic pip
+                        winsound.Beep(850, 45)
+                    except Exception:
+                        pass
+                threading.Thread(target=_play_subtle_beep, daemon=True).start()
 
         # If in Movie Auto mode, auto-approve after a 1.2s delay
         if self.auto_movie_active:
@@ -752,7 +763,10 @@ class NotchgentHUD(QWidget):
 
     def on_action_cleared(self):
         self.status_dot.setStyleSheet("color: #10b981;")  # Green
-        self.status_label.setText("Notchgent • Idle")
+        if self.auto_movie_active:
+            self.status_label.setText("🎬 Auto Active")
+        else:
+            self.status_label.setText("Notchgent • Idle")
         self.collapse()
 
     def on_approve_clicked(self):
@@ -784,7 +798,10 @@ class NotchgentHUD(QWidget):
         notch_hwnd: Optional[int] = None,
         ws_hints: Optional[List[str]] = None
     ):
-        success = send_key_to_vscode(key_str, movie_hwnd, notch_hwnd, ws_hints)
+        try:
+            success = send_key_to_vscode(key_str, movie_hwnd, notch_hwnd, ws_hints)
+        except Exception:
+            success = False
         QTimer.singleShot(0, lambda: self._on_key_sent(success, key_str))
 
     def _on_key_sent(self, success: bool, key_str: str):
@@ -850,9 +867,16 @@ class NotchgentHUD(QWidget):
 
 
 def main():
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("notchgent.hud.app.1")
+    except Exception:
+        pass
     ensure_default_desktop()
     kill_previous_instance()
     app = QApplication(sys.argv)
+    icon_path = os.path.join(SCRIPT_DIR, "app_icon.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     hud = NotchgentHUD()
     hud.show()
     sys.exit(app.exec())
