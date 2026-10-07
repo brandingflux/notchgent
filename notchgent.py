@@ -132,24 +132,41 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
 
 
 def force_foreground_window(hwnd: int) -> bool:
-    """Robustly brings hwnd to foreground using topmost-toggle and Alt-key unlock."""
+    """Robustly brings hwnd to foreground without stealing focus to menu bar."""
     if not hwnd or not win32gui.IsWindow(hwnd):
         return False
     if win32gui.GetForegroundWindow() == hwnd:
         return True
 
     try:
-        # 1. Briefly pulse HWND_TOPMOST then HWND_NOTOPMOST to elevate in DWM Z-order
-        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-        win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+        ctypes.windll.user32.AllowSetForegroundWindow(-1)
+        ctypes.windll.user32.LockSetForegroundWindow(2)  # LSFW_UNLOCK
 
-        # 2. Simulate Alt key down/up to wake Windows foreground routing
-        win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
-        win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
+        fg = win32gui.GetForegroundWindow()
+        if fg and win32gui.IsWindow(fg) and fg != hwnd:
+            fg_thread = win32process.GetWindowThreadProcessId(fg)[0]
+            target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+            my_thread = win32api.GetCurrentThreadId()
 
-        # 3. Bring to top and set foreground
-        win32gui.BringWindowToTop(hwnd)
-        win32gui.SetForegroundWindow(hwnd)
+            try:
+                win32process.AttachThreadInput(my_thread, fg_thread, True)
+                win32process.AttachThreadInput(my_thread, target_thread, True)
+                win32gui.BringWindowToTop(hwnd)
+                win32gui.SetForegroundWindow(hwnd)
+                win32process.AttachThreadInput(my_thread, target_thread, False)
+                win32process.AttachThreadInput(my_thread, fg_thread, False)
+            except Exception:
+                pass
+
+        if win32gui.GetForegroundWindow() != hwnd:
+            # Fallback: Alt key down across activation, then dismiss any menu focus with Ctrl tap
+            win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
+            win32gui.BringWindowToTop(hwnd)
+            win32gui.SetForegroundWindow(hwnd)
+            win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
+            time.sleep(0.01)
+            win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+            win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
     except Exception:
         pass
 
@@ -162,7 +179,7 @@ def send_key_to_vscode(
     notch_hwnd: Optional[int] = None,
     workspace_hints: Optional[List[str]] = None
 ) -> bool:
-    """Send '1' or '2' + Enter to VS Code and immediately restore the user's movie player."""
+    """Send '1' or '2' + Enter to VS Code, occluded behind the user's movie player if active."""
     ensure_default_desktop()
     target_hwnd, title = find_vscode_window(workspace_hints)
     if not target_hwnd:
@@ -170,27 +187,71 @@ def send_key_to_vscode(
 
     was_minimized = win32gui.IsIconic(target_hwnd)
 
+    # Only treat as a movie window if it is an existing, visible window with a title, distinct from VS Code
+    has_movie = bool(
+        movie_hwnd
+        and win32gui.IsWindow(movie_hwnd)
+        and movie_hwnd != target_hwnd
+        and win32gui.GetWindowText(movie_hwnd).strip()
+    )
+
+    was_movie_topmost = False
+
     try:
+        if has_movie:
+            # 1. Shield: Pin movie window topmost so VS Code cannot flash over it
+            try:
+                ex_style = win32gui.GetWindowLong(movie_hwnd, win32con.GWL_EXSTYLE)
+                was_movie_topmost = bool(ex_style & win32con.WS_EX_TOPMOST)
+                win32gui.SetWindowPos(
+                    movie_hwnd, win32con.HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+                )
+            except Exception:
+                pass
+
+            # 2. Keep Notchgent HUD above the movie window
+            if notch_hwnd and win32gui.IsWindow(notch_hwnd):
+                try:
+                    win32gui.SetWindowPos(
+                        notch_hwnd, win32con.HWND_TOPMOST,
+                        0, 0, 0, 0,
+                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW
+                    )
+                except Exception:
+                    pass
+
+            # 3. Ensure VS Code is strictly in the standard (non-topmost) Z-band
+            try:
+                win32gui.SetWindowPos(
+                    target_hwnd, win32con.HWND_NOTOPMOST,
+                    0, 0, 0, 0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+                )
+            except Exception:
+                pass
+
         if was_minimized:
             win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
             time.sleep(0.04)
 
-        # Robustly bring VS Code to foreground with retry
-        for _ in range(4):
+        # 4. Focus VS Code
+        for _ in range(3):
             if force_foreground_window(target_hwnd):
                 break
             time.sleep(0.02)
 
         time.sleep(0.03)
 
-        # Send keystroke + enter using Win32 keybd_event
+        # 5. Send keystroke + enter
         vk = ord(key_text[0].upper()) if key_text else ord('1')
         win32api.keybd_event(vk, 0, 0, 0)
         win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.02)
         win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
         win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.06)
+        time.sleep(0.04)
 
     except Exception:
         return False
@@ -202,15 +263,16 @@ def send_key_to_vscode(
             except Exception:
                 pass
 
-        # 2. If movie window is known, restore focus to it and ensure VS Code is behind it
-        if movie_hwnd and win32gui.IsWindow(movie_hwnd) and movie_hwnd != target_hwnd:
+        # 2. Restore foreground focus to the user's movie player if one was active
+        if has_movie:
             try:
                 force_foreground_window(movie_hwnd)
-                win32gui.SetWindowPos(
-                    target_hwnd, movie_hwnd,
-                    0, 0, 0, 0,
-                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
-                )
+                if not was_movie_topmost:
+                    win32gui.SetWindowPos(
+                        movie_hwnd, win32con.HWND_NOTOPMOST,
+                        0, 0, 0, 0,
+                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+                    )
             except Exception:
                 pass
 
@@ -372,8 +434,11 @@ class TranscriptWatcher(QObject):
 
 
 class NotchgentHUD(QWidget):
+    key_sent_signal = pyqtSignal(bool, str)
+
     def __init__(self):
         super().__init__()
+        self.key_sent_signal.connect(self._on_key_sent)
         self.is_expanded = False
         self.drag_pos = QPoint()
         self.auto_movie_active = False
@@ -716,8 +781,20 @@ class NotchgentHUD(QWidget):
             self.status_label.setText(f"Approval Needed (Step {step_idx})")
 
         # Snapshot active user movie window before Notchgent might gain mouse attention
+        try:
+            fg = win32gui.GetForegroundWindow()
+            if fg and win32gui.IsWindow(fg) and fg != int(self.winId()):
+                _, pid = win32process.GetWindowThreadProcessId(fg)
+                proc = psutil.Process(pid)
+                if "code" not in proc.name().lower():
+                    self.last_user_hwnd = fg
+        except Exception:
+            pass
+
         if self.last_user_hwnd and win32gui.IsWindow(self.last_user_hwnd):
             self.pending_movie_hwnd = self.last_user_hwnd
+        else:
+            self.pending_movie_hwnd = None
 
         # Set Badge
         badges = {
@@ -775,6 +852,9 @@ class NotchgentHUD(QWidget):
         self.status_dot.setStyleSheet("color: #3b82f6;")
         QApplication.processEvents()
 
+        # Watchdog: if still showing 'Sending' after 3s, safely reset status
+        QTimer.singleShot(3000, self._watchdog_check)
+
         target_movie = self.pending_movie_hwnd or self.last_user_hwnd
         notch_hwnd = int(self.winId())
         ws_hints = list(self.current_workspace_hints)
@@ -785,6 +865,9 @@ class NotchgentHUD(QWidget):
         self.status_label.setText("Sending 2...")
         self.status_dot.setStyleSheet("color: #ef4444;")
         QApplication.processEvents()
+
+        # Watchdog: if still showing 'Sending' after 3s, safely reset status
+        QTimer.singleShot(3000, self._watchdog_check)
 
         target_movie = self.pending_movie_hwnd or self.last_user_hwnd
         notch_hwnd = int(self.winId())
@@ -802,7 +885,8 @@ class NotchgentHUD(QWidget):
             success = send_key_to_vscode(key_str, movie_hwnd, notch_hwnd, ws_hints)
         except Exception:
             success = False
-        QTimer.singleShot(0, lambda: self._on_key_sent(success, key_str))
+        # Emit signal to main GUI thread (thread-safe queued connection)
+        self.key_sent_signal.emit(success, key_str)
 
     def _on_key_sent(self, success: bool, key_str: str):
         self.ensure_topmost()
@@ -812,6 +896,27 @@ class NotchgentHUD(QWidget):
         else:
             self.status_label.setText("VS Code not found")
             self.status_dot.setStyleSheet("color: #f59e0b;")
+        QTimer.singleShot(1800, self._restore_idle_label)
+
+    def _watchdog_check(self):
+        if self.status_label.text().startswith("Sending"):
+            if self.auto_movie_active:
+                mins, secs = divmod(self.auto_countdown, 60)
+                self.status_label.setText(f"🎬 Auto ({mins:02d}:{secs:02d})")
+                self.status_dot.setStyleSheet("color: #3b82f6;")
+            else:
+                self.status_label.setText("Notchgent • Idle")
+                self.status_dot.setStyleSheet("color: #10b981;")
+
+    def _restore_idle_label(self):
+        if not self.is_expanded:
+            if self.auto_movie_active:
+                mins, secs = divmod(self.auto_countdown, 60)
+                self.status_label.setText(f"🎬 Auto ({mins:02d}:{secs:02d})")
+                self.status_dot.setStyleSheet("color: #3b82f6;")
+            else:
+                self.status_label.setText("Notchgent • Idle")
+                self.status_dot.setStyleSheet("color: #10b981;")
 
     def toggle_movie_mode(self):
         if self.movie_mode_btn.isChecked():
