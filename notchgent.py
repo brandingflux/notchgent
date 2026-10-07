@@ -491,9 +491,9 @@ class NotchgentHUD(QWidget):
 
         # Drop Shadow
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setColor(QColor(0, 0, 0, 210))
-        shadow.setOffset(0, 4)
+        shadow.setBlurRadius(32)
+        shadow.setColor(QColor(0, 0, 0, 190))
+        shadow.setOffset(0, 6)
         self.frame.setGraphicsEffect(shadow)
 
         # --- Compact Header Bar (Always visible) ---
@@ -581,8 +581,8 @@ class NotchgentHUD(QWidget):
                 font-family: 'Segoe UI', -apple-system, sans-serif;
             }
             #MainFrame {
-                background-color: #121316;
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background-color: rgba(18, 20, 26, 0.72);
+                border: 1px solid rgba(255, 255, 255, 0.16);
                 border-radius: 22px;
             }
             #StatusDot {
@@ -635,13 +635,13 @@ class NotchgentHUD(QWidget):
                 font-weight: 600;
             }
             #DetailsBox {
-                background-color: #0b0c0e;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
+                background-color: rgba(10, 12, 16, 0.60);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
                 color: #f3f4f6;
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 11px;
-                padding: 5px;
+                padding: 6px;
             }
             #ApproveBtn {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #10b981, stop:1 #059669);
@@ -673,6 +673,26 @@ class NotchgentHUD(QWidget):
         self.anim.finished.connect(self._on_anim_finished)
 
         self.collapse()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.apply_glass_effect()
+
+    def apply_glass_effect(self):
+        """Enable native Windows 11 Acrylic frosted glass blur behind the HUD."""
+        try:
+            hwnd = int(self.winId())
+            dwmapi = ctypes.windll.dwmapi
+            # DWMWA_SYSTEMBACKDROP_TYPE = 38 (3 = Acrylic, 2 = Mica)
+            backdrop = ctypes.c_int(3)
+            hr = dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), ctypes.sizeof(backdrop))
+            if hr != 0:
+                backdrop = ctypes.c_int(2)  # Fallback to Mica
+                dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), ctypes.sizeof(backdrop))
+            dark = ctypes.c_int(1)
+            dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
+        except Exception:
+            pass
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
