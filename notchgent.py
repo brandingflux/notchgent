@@ -448,7 +448,7 @@ class NotchgentHUD(QWidget):
         self.last_user_hwnd = None
         self.pending_movie_hwnd = None
         self.current_workspace_hints: List[str] = []
-        self.pinned_y = 12
+        self.pinned_y = 0
         self.pinned_center_x = None
 
         self.sound_mode = "beep"
@@ -472,13 +472,13 @@ class NotchgentHUD(QWidget):
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowOpacity(0.98)
+        self.setWindowOpacity(1.0)
         self.setMinimumSize(300, 40)
         self.setMaximumSize(650, 320)
 
-        # Outer Layout
+        # Outer Layout (0px on top for flush screen edge, padding on sides & bottom for shadow)
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(4, 4, 4, 4)
+        self.main_layout.setContentsMargins(12, 0, 12, 14)
         self.main_layout.setSpacing(0)
 
         # Main Capsule Frame
@@ -489,11 +489,11 @@ class NotchgentHUD(QWidget):
         self.frame_layout.setSpacing(8)
         self.frame_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Drop Shadow
+        # Drop Shadow (radiates downward from notch into screen)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(32)
-        shadow.setColor(QColor(0, 0, 0, 190))
-        shadow.setOffset(0, 6)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        shadow.setOffset(0, 4)
         self.frame.setGraphicsEffect(shadow)
 
         # --- Compact Header Bar (Always visible) ---
@@ -581,9 +581,13 @@ class NotchgentHUD(QWidget):
                 font-family: 'Segoe UI', -apple-system, sans-serif;
             }
             #MainFrame {
-                background-color: rgba(18, 20, 26, 0.72);
+                background-color: rgba(18, 20, 26, 0.90);
                 border: 1px solid rgba(255, 255, 255, 0.16);
-                border-radius: 22px;
+                border-top: none;
+                border-top-left-radius: 0px;
+                border-top-right-radius: 0px;
+                border-bottom-left-radius: 20px;
+                border-bottom-right-radius: 20px;
             }
             #StatusDot {
                 color: #10b981;
@@ -679,16 +683,14 @@ class NotchgentHUD(QWidget):
         self.apply_glass_effect()
 
     def apply_glass_effect(self):
-        """Enable native Windows 11 Acrylic frosted glass blur behind the HUD."""
+        """Configure DWM attributes to eliminate outer window borders and enable dark mode."""
         try:
             hwnd = int(self.winId())
             dwmapi = ctypes.windll.dwmapi
-            # DWMWA_SYSTEMBACKDROP_TYPE = 38 (3 = Acrylic, 2 = Mica)
-            backdrop = ctypes.c_int(3)
-            hr = dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), ctypes.sizeof(backdrop))
-            if hr != 0:
-                backdrop = ctypes.c_int(2)  # Fallback to Mica
-                dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), ctypes.sizeof(backdrop))
+            # Eliminate any DWM system border (DWMWA_BORDER_COLOR = 34, 0xFFFFFFFE = DWMWA_COLOR_NONE)
+            border_none = ctypes.c_uint(0xFFFFFFFE)
+            dwmapi.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(border_none), ctypes.sizeof(border_none))
+            # Set dark mode attribute (DWMWA_USE_IMMERSIVE_DARK_MODE = 20)
             dark = ctypes.c_int(1)
             dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
         except Exception:
@@ -696,6 +698,10 @@ class NotchgentHUD(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Only drag if clicking inside the visible capsule frame
+            if not self.frame.geometry().contains(event.position().toPoint()):
+                event.ignore()
+                return
             self.drag_pos = event.globalPosition().toPoint() - self.pos()
             event.accept()
 
@@ -733,7 +739,7 @@ class NotchgentHUD(QWidget):
 
     def collapse(self):
         self.is_expanded = False
-        target_w, target_h = 390, 48
+        target_w, target_h = 404, 58
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
@@ -757,7 +763,7 @@ class NotchgentHUD(QWidget):
     def expand(self):
         self.is_expanded = True
         self.expanded_widget.show()
-        target_w, target_h = 540, 224
+        target_w, target_h = 564, 238
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
