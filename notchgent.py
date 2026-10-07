@@ -22,7 +22,8 @@ os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
 from PyQt6.QtCore import (
-    Qt, QPoint, pyqtSignal, QObject, QTimer
+    Qt, QPoint, QRect, pyqtSignal, QObject, QTimer,
+    QPropertyAnimation, QEasingCurve
 )
 from PyQt6.QtGui import (
     QColor, QFont, QIcon
@@ -472,6 +473,8 @@ class NotchgentHUD(QWidget):
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowOpacity(0.98)
+        self.setMinimumSize(300, 40)
+        self.setMaximumSize(650, 320)
 
         # Outer Layout
         self.main_layout = QVBoxLayout(self)
@@ -665,6 +668,10 @@ class NotchgentHUD(QWidget):
             }
         """)
 
+        # Spring fluid animation for Dynamic Island
+        self.anim = QPropertyAnimation(self, b"geometry")
+        self.anim.finished.connect(self._on_anim_finished)
+
         self.collapse()
 
     def mousePressEvent(self, event):
@@ -699,30 +706,52 @@ class NotchgentHUD(QWidget):
         except Exception:
             pass
 
+    def _on_anim_finished(self):
+        if not self.is_expanded:
+            self.expanded_widget.hide()
+            self.ensure_topmost()
+
     def collapse(self):
         self.is_expanded = False
-        self.expanded_widget.hide()
-        w, h = 390, 48
+        target_w, target_h = 390, 48
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
-        x = self.pinned_center_x - w // 2
+        x = self.pinned_center_x - target_w // 2
         y = self.pinned_y
-        self.setFixedSize(w, h)
-        self.setGeometry(x, y, w, h)
-        self.ensure_topmost()
+        target_rect = QRect(x, y, target_w, target_h)
+
+        if not self.isVisible() or self.width() <= 10:
+            self.expanded_widget.hide()
+            self.setGeometry(target_rect)
+            self.ensure_topmost()
+            return
+
+        self.anim.stop()
+        self.anim.setDuration(220)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.anim.setStartValue(self.geometry())
+        self.anim.setEndValue(target_rect)
+        self.anim.start()
 
     def expand(self):
         self.is_expanded = True
         self.expanded_widget.show()
-        w, h = 540, 224
+        target_w, target_h = 540, 224
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
-        x = self.pinned_center_x - w // 2
+        x = self.pinned_center_x - target_w // 2
         y = self.pinned_y
-        self.setFixedSize(w, h)
-        self.setGeometry(x, y, w, h)
+        target_rect = QRect(x, y, target_w, target_h)
+
+        self.anim.stop()
+        self.anim.setDuration(260)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        self.anim.setStartValue(self.geometry())
+        self.anim.setEndValue(target_rect)
+        self.anim.start()
+
         self.ensure_topmost()
         self.raise_()
         self.activateWindow()
