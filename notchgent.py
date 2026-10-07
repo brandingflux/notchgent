@@ -14,6 +14,7 @@ import os
 import glob
 import json
 import time
+import math
 import threading
 from typing import Optional, Tuple, Dict, Any, List
 
@@ -451,6 +452,13 @@ class NotchgentHUD(QWidget):
         self.pinned_y = 0
         self.pinned_center_x = None
 
+        # Pulsation for Auto Movie Mode
+        self.pulse_phase = 0.0
+        self.pulse_timer = QTimer(self)
+        self.pulse_timer.setInterval(40)
+        self.pulse_timer.timeout.connect(self._on_pulse_tick)
+        self.frame_shadow: Optional[QGraphicsDropShadowEffect] = None
+
         self.sound_mode = "beep"
         config_path = os.path.join(SCRIPT_DIR, "config.json")
         if os.path.exists(config_path):
@@ -495,6 +503,7 @@ class NotchgentHUD(QWidget):
         shadow.setColor(QColor(0, 0, 0, 180))
         shadow.setOffset(0, 4)
         self.frame.setGraphicsEffect(shadow)
+        self.frame_shadow = shadow
 
         # --- Compact Header Bar (Always visible) ---
         self.header_widget = QWidget()
@@ -582,7 +591,7 @@ class NotchgentHUD(QWidget):
             }
             #MainFrame {
                 background-color: rgba(18, 20, 26, 0.90);
-                border: 1px solid rgba(255, 255, 255, 0.16);
+                border: 1.5px solid rgba(249, 115, 22, 0.90);
                 border-top: none;
                 border-top-left-radius: 0px;
                 border-top-right-radius: 0px;
@@ -613,9 +622,9 @@ class NotchgentHUD(QWidget):
                 color: #ffffff;
             }
             #MovieModeBtn:checked {
-                background-color: #2563eb;
+                background-color: #ea580c;
                 color: #ffffff;
-                border: 1px solid #60a5fa;
+                border: 1px solid #fb923c;
             }
             #CloseBtn {
                 background: transparent;
@@ -958,7 +967,7 @@ class NotchgentHUD(QWidget):
             if self.auto_movie_active:
                 mins, secs = divmod(self.auto_countdown, 60)
                 self.status_label.setText(f"🎬 Auto ({mins:02d}:{secs:02d})")
-                self.status_dot.setStyleSheet("color: #3b82f6;")
+                self.status_dot.setStyleSheet("color: #f97316;")
             else:
                 self.status_label.setText("Notchgent • Idle")
                 self.status_dot.setStyleSheet("color: #10b981;")
@@ -968,7 +977,7 @@ class NotchgentHUD(QWidget):
             if self.auto_movie_active:
                 mins, secs = divmod(self.auto_countdown, 60)
                 self.status_label.setText(f"🎬 Auto ({mins:02d}:{secs:02d})")
-                self.status_dot.setStyleSheet("color: #3b82f6;")
+                self.status_dot.setStyleSheet("color: #f97316;")
             else:
                 self.status_label.setText("Notchgent • Idle")
                 self.status_dot.setStyleSheet("color: #10b981;")
@@ -978,16 +987,74 @@ class NotchgentHUD(QWidget):
             self.auto_movie_active = True
             self.auto_countdown = 900  # 15 mins
             self.status_label.setText("🎬 Auto (15m)")
-            self.status_dot.setStyleSheet("color: #3b82f6;")
+            self.status_dot.setStyleSheet("color: #f97316;")
+            # Start pulsating border animation
+            self.pulse_phase = 0.0
+            self.pulse_timer.start()
             # If an action is pending right now, approve it immediately
             if self.is_expanded:
                 self.on_approve_clicked()
         else:
             self.auto_movie_active = False
             self.auto_countdown = 0
+            # Stop pulsation and restore steady orange stroke
+            self.pulse_timer.stop()
+            self._reset_border_to_steady()
             self.movie_mode_btn.setText("🎬 Auto")
             self.status_label.setText("Notchgent • Idle")
             self.status_dot.setStyleSheet("color: #10b981;")
+
+    def _on_pulse_tick(self):
+        if not self.auto_movie_active:
+            self.pulse_timer.stop()
+            self._reset_border_to_steady()
+            return
+
+        self.pulse_phase += 0.08
+        val = (math.sin(self.pulse_phase) + 1.0) / 2.0
+
+        # Border alpha breathes from 0.35 to 1.0
+        alpha = 0.35 + val * 0.65
+        border_w = 1.3 + val * 0.8
+        # Color shifts between warm orange (245, 110, 20) and glowing electric orange (255, 155, 45)
+        r = int(245 + val * 10)
+        g = int(110 + val * 45)
+        b = int(20 + val * 25)
+
+        # Pulse drop shadow with glowing warm aura
+        if hasattr(self, "frame_shadow") and self.frame_shadow:
+            shadow_alpha = int(35 + val * 125)
+            shadow_blur = int(16 + val * 16)
+            self.frame_shadow.setColor(QColor(249, 115, 22, shadow_alpha))
+            self.frame_shadow.setBlurRadius(shadow_blur)
+
+        self.frame.setStyleSheet(f"""
+            #MainFrame {{
+                background-color: rgba(18, 20, 26, 0.90);
+                border: {border_w:.1f}px solid rgba({r}, {g}, {b}, {alpha:.2f});
+                border-top: none;
+                border-top-left-radius: 0px;
+                border-top-right-radius: 0px;
+                border-bottom-left-radius: 20px;
+                border-bottom-right-radius: 20px;
+            }}
+        """)
+
+    def _reset_border_to_steady(self):
+        self.frame.setStyleSheet("""
+            #MainFrame {
+                background-color: rgba(18, 20, 26, 0.90);
+                border: 1.5px solid rgba(249, 115, 22, 0.90);
+                border-top: none;
+                border-top-left-radius: 0px;
+                border-top-right-radius: 0px;
+                border-bottom-left-radius: 20px;
+                border-bottom-right-radius: 20px;
+            }
+        """)
+        if hasattr(self, "frame_shadow") and self.frame_shadow:
+            self.frame_shadow.setColor(QColor(0, 0, 0, 180))
+            self.frame_shadow.setBlurRadius(20)
 
     def on_movie_timer_tick(self):
         if self.auto_movie_active:
