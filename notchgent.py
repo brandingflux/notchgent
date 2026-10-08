@@ -86,8 +86,26 @@ def ensure_default_desktop():
         pass
 
 
+def release_all_modifiers():
+    """Forcibly release Alt, Ctrl, Shift, and Win keys if currently pressed or simulated."""
+    vks = (
+        win32con.VK_MENU, win32con.VK_LMENU, win32con.VK_RMENU,
+        win32con.VK_CONTROL, win32con.VK_LCONTROL, win32con.VK_RCONTROL,
+        win32con.VK_SHIFT, win32con.VK_LSHIFT, win32con.VK_RSHIFT,
+        win32con.VK_LWIN, win32con.VK_RWIN
+    )
+    for vk in vks:
+        try:
+            async_down = bool(win32api.GetAsyncKeyState(vk) & 0x8000)
+            key_down = bool(win32api.GetKeyState(vk) & 0x8000)
+            if async_down or key_down:
+                win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+        except Exception:
+            pass
+
+
 def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Optional[int], str]:
-    """Find the matching VS Code window handle for the given workspace, or the MRU VS Code window."""
+    """Find the matching VS Code window handle for the given workspace, or None if no match."""
     ensure_default_desktop()
     candidates = []
 
@@ -115,7 +133,7 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
     if not candidates:
         return None, ""
 
-    # 1. Match candidates against workspace hints (e.g. TTS, notchgent, FFTL-light-astro-theme)
+    # 1. Match candidates strictly against workspace hints (e.g. TTS, notchgent, FFTL-light-astro-theme)
     if workspace_hints:
         hints = [workspace_hints] if isinstance(workspace_hints, str) else list(workspace_hints)
         for h in hints:
@@ -125,20 +143,34 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
             for hwnd, title, z in candidates:
                 t_lower = title.lower()
                 # Check for workspace word in VS Code title
-                if f"- {h_clean} -" in t_lower or f" {h_clean} " in t_lower or h_clean in t_lower:
+                if (
+                    f"- {h_clean} -" in t_lower
+                    or t_lower.startswith(f"{h_clean} -")
+                    or f"[{h_clean}]" in t_lower
+                    or f" {h_clean} " in t_lower
+                ):
                     return hwnd, title
 
-    # 2. Fallback: Return the most recently active VS Code window (top of OS Z-order)
-    candidates.sort(key=lambda x: x[2])
-    return candidates[0][0], candidates[0][1]
+        # Strict Isolation: If workspace hints were given but NONE of the open VS Code windows matched,
+        # DO NOT inject keystrokes into an unrelated VS Code window!
+        return None, ""
+
+    # 2. Only if NO workspace hints were provided at all, and only 1 VS Code window exists:
+    if len(candidates) == 1:
+        return candidates[0][0], candidates[0][1]
+
+    # If multiple VS Code windows exist and we have no hint which one to target, DO NOT guess!
+    return None, ""
 
 
 def force_foreground_window(hwnd: int) -> bool:
-    """Robustly brings hwnd to foreground without stealing focus to menu bar."""
+    """Robustly brings hwnd to foreground without stealing focus to menu bar or sticking Alt."""
     if not hwnd or not win32gui.IsWindow(hwnd):
         return False
     if win32gui.GetForegroundWindow() == hwnd:
         return True
+
+    ensure_default_desktop()
 
     try:
         ctypes.windll.user32.AllowSetForegroundWindow(-1)
@@ -150,27 +182,45 @@ def force_foreground_window(hwnd: int) -> bool:
             target_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
             my_thread = win32api.GetCurrentThreadId()
 
+            attached_fg = False
+            attached_target = False
             try:
                 win32process.AttachThreadInput(my_thread, fg_thread, True)
+                attached_fg = True
                 win32process.AttachThreadInput(my_thread, target_thread, True)
+                attached_target = True
+
                 win32gui.BringWindowToTop(hwnd)
                 win32gui.SetForegroundWindow(hwnd)
-                win32process.AttachThreadInput(my_thread, target_thread, False)
-                win32process.AttachThreadInput(my_thread, fg_thread, False)
+            finally:
+                if attached_target:
+                    try:
+                        win32process.AttachThreadInput(my_thread, target_thread, False)
+                    except Exception:
+                        pass
+                if attached_fg:
+                    try:
+                        win32process.AttachThreadInput(my_thread, fg_thread, False)
+                    except Exception:
+                        pass
+
+        if win32gui.GetForegroundWindow() != hwnd:
+            # Fallback 1: Native Windows SwitchToThisWindow API
+            try:
+                ctypes.windll.user32.SwitchToThisWindow(hwnd, True)
             except Exception:
                 pass
 
         if win32gui.GetForegroundWindow() != hwnd:
-            # Fallback: Alt key down across activation, then dismiss any menu focus with Ctrl tap
-            win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
-            win32gui.BringWindowToTop(hwnd)
-            win32gui.SetForegroundWindow(hwnd)
-            win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
-            time.sleep(0.01)
-            win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-            win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-    except Exception:
-        pass
+            # Fallback 2: Show and bring to top
+            try:
+                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                win32gui.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+    finally:
+        # Guarantee no modifier keys are left held down
+        release_all_modifiers()
 
     return win32gui.GetForegroundWindow() == hwnd
 
@@ -200,6 +250,13 @@ def send_key_to_vscode(
     was_movie_topmost = False
 
     try:
+        # Pre-flight: Ensure any physical or stuck modifier keys are fully cleared
+        for _ in range(12):
+            if not (win32api.GetAsyncKeyState(win32con.VK_MENU) & 0x8000):
+                break
+            time.sleep(0.01)
+        release_all_modifiers()
+
         if has_movie:
             # 1. Shield: Pin movie window topmost so VS Code cannot flash over it
             try:
@@ -246,11 +303,19 @@ def send_key_to_vscode(
 
         time.sleep(0.03)
 
+        # Pre-keystroke check: ensure all modifiers are up before sending key
+        release_all_modifiers()
+        time.sleep(0.01)
+
         # 5. Send keystroke + enter
         vk = ord(key_text[0].upper()) if key_text else ord('1')
         win32api.keybd_event(vk, 0, 0, 0)
         win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.02)
+
+        release_all_modifiers()
+        time.sleep(0.01)
+
         win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
         win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.04)
@@ -258,6 +323,8 @@ def send_key_to_vscode(
     except Exception:
         return False
     finally:
+        release_all_modifiers()
+
         # 1. If VS Code was minimized before, re-minimize it immediately
         if was_minimized:
             try:
@@ -289,80 +356,131 @@ def send_key_to_vscode(
             except Exception:
                 pass
 
+        release_all_modifiers()
+
     return True
 
 
-def get_latest_transcript_file() -> Optional[str]:
-    """Find the most recently modified transcript.jsonl file."""
+def get_recent_transcripts(max_age_seconds: int = 1800) -> List[str]:
+    """Find all transcript.jsonl files modified within max_age_seconds (default 30 mins)."""
     pattern = os.path.join(BRAIN_DIR, "*", ".system_generated", "logs", "transcript.jsonl")
     files = glob.glob(pattern)
-    if not files:
-        return None
-    files.sort(key=os.path.getmtime, reverse=True)
-    return files[0]
+    now = time.time()
+    recent = []
+    for f in files:
+        try:
+            mtime = os.path.getmtime(f)
+            if (now - mtime) <= max_age_seconds:
+                recent.append((f, mtime))
+        except Exception:
+            pass
+    recent.sort(key=lambda x: x[1], reverse=True)
+    return [f[0] for f in recent]
 
 
 def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -> List[str]:
-    """Extract candidate workspace/folder names from tool arguments and transcript logs."""
+    """Extract candidate workspace/folder names strictly from the tool call arguments and its transcript."""
     hints = []
     # 1. From path arguments in the current tool call
-    for key in ("Cwd", "TargetFile", "AbsolutePath"):
+    for key in ("Cwd", "TargetFile", "AbsolutePath", "path", "directory"):
         raw_path = args.get(key)
         if raw_path and isinstance(raw_path, str):
             clean = raw_path.strip('"\'')
             norm = os.path.normpath(clean)
             parts = [p for p in norm.split(os.sep) if p and not p.endswith(":") and p != "."]
             for part in reversed(parts):
-                if len(part) > 1 and part.lower() not in ("src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public"):
+                if len(part) > 1 and part.lower() not in (
+                    "src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public", ".gemini"
+                ):
                     if part not in hints:
                         hints.append(part)
 
-    # 2. Search backwards in transcript_file for recent Cwd or TargetFile
+    # 2. Search backwards in this SPECIFIC transcript_file for recent Cwd or TargetFile
     if not hints and transcript_file and os.path.exists(transcript_file):
         try:
             with open(transcript_file, "r", encoding="utf-8", errors="ignore") as f:
                 f.seek(0, os.SEEK_END)
                 size = f.tell()
-                f.seek(max(0, size - 16384))
+                read_size = min(size, 32768)
+                f.seek(size - read_size)
                 lines = [l.strip() for l in f.readlines() if l.strip()]
             for line in reversed(lines):
                 if '"Cwd"' in line or '"TargetFile"' in line or '"AbsolutePath"' in line:
-                    obj = json.loads(line)
-                    for tc in obj.get("tool_calls", []):
-                        a = tc.get("args", {})
-                        if isinstance(a, str):
-                            try:
-                                a = json.loads(a)
-                            except Exception:
-                                pass
-                        for k in ("Cwd", "TargetFile", "AbsolutePath"):
-                            p = a.get(k)
-                            if p and isinstance(p, str):
-                                norm = os.path.normpath(p.strip('"\''))
-                                parts = [x for x in norm.split(os.sep) if x and not x.endswith(":") and x != "."]
-                                for part in reversed(parts):
-                                    if len(part) > 1 and part.lower() not in ("src", "app", "components", "lib", "node_modules"):
-                                        if part not in hints:
-                                            hints.append(part)
-                    if hints:
-                        break
+                    try:
+                        obj = json.loads(line)
+                        for tc in obj.get("tool_calls", []):
+                            a = tc.get("args", {})
+                            if isinstance(a, str):
+                                try:
+                                    a = json.loads(a)
+                                except Exception:
+                                    pass
+                            for k in ("Cwd", "TargetFile", "AbsolutePath", "path"):
+                                p = a.get(k)
+                                if p and isinstance(p, str):
+                                    norm = os.path.normpath(p.strip('"\''))
+                                    parts = [x for x in norm.split(os.sep) if x and not x.endswith(":") and x != "."]
+                                    for part in reversed(parts):
+                                        if len(part) > 1 and part.lower() not in ("src", "app", "components", "lib", "node_modules", ".gemini"):
+                                            if part not in hints:
+                                                hints.append(part)
+                    except Exception:
+                        pass
+                if hints:
+                    break
         except Exception:
             pass
 
-    # 3. Add active agy.exe workspace names
+    return hints
+
+
+def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
+    """Check if a specific transcript file currently has a pending tool call awaiting approval."""
+    if not transcript_path or not os.path.exists(transcript_path):
+        return None
+
     try:
-        for p in psutil.process_iter(['pid', 'name']):
-            if 'agy' in p.info['name'].lower():
-                env = p.environ()
-                ws = env.get('GEMINI_CLI_IDE_WORKSPACE_PATH') or p.cwd()
-                if ws:
-                    folder = os.path.basename(os.path.normpath(ws))
-                    if folder and folder not in hints:
-                        hints.append(folder)
+        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            if size == 0:
+                return None
+            read_size = min(size, 8192)
+            f.seek(size - read_size)
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+
+        if not lines:
+            return None
+
+        last_obj = json.loads(lines[-1])
+        step_idx = last_obj.get("step_index", 0)
+        step_type = last_obj.get("type", "")
+
+        # If the last entry is PLANNER_RESPONSE with tool_calls, a tool is awaiting approval!
+        if step_type == "PLANNER_RESPONSE" and last_obj.get("tool_calls"):
+            tool_call = last_obj["tool_calls"][0]
+            tool_name = tool_call.get("name", "Tool")
+            args = tool_call.get("args", {})
+
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {"raw": args}
+
+            workspace_hints = extract_workspace_hints(args, transcript_path)
+
+            return {
+                "transcript_file": transcript_path,
+                "step_index": step_idx,
+                "tool_name": tool_name,
+                "args": args,
+                "workspace_hints": workspace_hints
+            }
     except Exception:
         pass
 
-    return hints
+    return None
 
 
 class TranscriptWatcher(QObject):
@@ -371,68 +489,36 @@ class TranscriptWatcher(QObject):
 
     def __init__(self):
         super().__init__()
-        self.last_step_index = -1
         self.currently_pending = False
-        self.last_file: Optional[str] = None
-        self.file_pos = 0
+        self.last_pending_key = None
 
     def check_for_updates(self):
-        transcript_file = get_latest_transcript_file()
-        if not transcript_file or not os.path.exists(transcript_file):
+        recent_transcripts = get_recent_transcripts(max_age_seconds=1800)
+        if not recent_transcripts:
+            if self.currently_pending:
+                self.currently_pending = False
+                self.last_pending_key = None
+                self.action_cleared.emit()
             return
 
-        try:
-            # Read the last few non-empty lines
-            with open(transcript_file, "r", encoding="utf-8", errors="ignore") as f:
-                # Seek near the end for performance
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                read_size = min(size, 8192)
-                f.seek(size - read_size)
-                lines = [l.strip() for l in f.readlines() if l.strip()]
+        active_pending = []
+        for t_file in recent_transcripts[:8]:
+            act = check_transcript_pending_action(t_file)
+            if act:
+                active_pending.append(act)
 
-            if not lines:
-                return
-
-            last_obj = json.loads(lines[-1])
-            step_idx = last_obj.get("step_index", 0)
-            step_type = last_obj.get("type", "")
-
-            # If the last entry is PLANNER_RESPONSE with tool_calls, a tool is awaiting approval!
-            if step_type == "PLANNER_RESPONSE" and last_obj.get("tool_calls"):
-                tool_call = last_obj["tool_calls"][0]
-                tool_name = tool_call.get("name", "Tool")
-                args = tool_call.get("args", {})
-
-                # If args were stringified JSON, parse them
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except Exception:
-                        args = {"raw": args}
-
-                # Extract workspace hints dynamically
-                workspace_hints = extract_workspace_hints(args, transcript_file)
-
-                # Only notify if this is a newly observed pending step
-                if not self.currently_pending or step_idx != self.last_step_index:
-                    self.currently_pending = True
-                    self.last_step_index = step_idx
-                    self.action_pending.emit({
-                        "step_index": step_idx,
-                        "tool_name": tool_name,
-                        "args": args,
-                        "workspace_hints": workspace_hints
-                    })
-
-            # If the last entry is GENERIC, USER_INPUT, or SYSTEM_MESSAGE, the tool execution finished!
-            elif step_type in ("GENERIC", "USER_INPUT", "SYSTEM_MESSAGE") or (step_type == "PLANNER_RESPONSE" and not last_obj.get("tool_calls")):
-                if self.currently_pending:
-                    self.currently_pending = False
-                    self.action_cleared.emit()
-
-        except Exception:
-            pass
+        if active_pending:
+            action = active_pending[0]
+            key = (action["transcript_file"], action["step_index"])
+            if not self.currently_pending or key != self.last_pending_key:
+                self.currently_pending = True
+                self.last_pending_key = key
+                self.action_pending.emit(action)
+        else:
+            if self.currently_pending:
+                self.currently_pending = False
+                self.last_pending_key = None
+                self.action_cleared.emit()
 
 
 class NotchgentHUD(QWidget):
@@ -468,6 +554,10 @@ class NotchgentHUD(QWidget):
                     self.sound_mode = str(cfg.get("sound", "beep")).lower()
             except Exception:
                 pass
+
+        self.is_sending_keys = False
+        self._auto_timer: Optional[QTimer] = None
+        release_all_modifiers()
 
         self.setup_ui()
         self.setup_watcher()
@@ -890,7 +980,12 @@ class NotchgentHUD(QWidget):
 
         # If in Movie Auto mode, auto-approve after a 1.2s delay
         if self.auto_movie_active:
-            QTimer.singleShot(1200, self.on_approve_clicked)
+            if self._auto_timer and self._auto_timer.isActive():
+                self._auto_timer.stop()
+            self._auto_timer = QTimer(self)
+            self._auto_timer.setSingleShot(True)
+            self._auto_timer.timeout.connect(self.on_approve_clicked)
+            self._auto_timer.start(1200)
         else:
             self.expand()
 
@@ -904,6 +999,9 @@ class NotchgentHUD(QWidget):
 
     def on_approve_clicked(self):
         """Send '1' + Enter to VS Code and show feedback."""
+        if getattr(self, "is_sending_keys", False):
+            return
+        self.is_sending_keys = True
         self.status_label.setText("Sending 1...")
         self.status_dot.setStyleSheet("color: #3b82f6;")
         QApplication.processEvents()
@@ -918,6 +1016,9 @@ class NotchgentHUD(QWidget):
 
     def on_deny_clicked(self):
         """Send '2' + Enter to VS Code and show feedback."""
+        if getattr(self, "is_sending_keys", False):
+            return
+        self.is_sending_keys = True
         self.status_label.setText("Sending 2...")
         self.status_dot.setStyleSheet("color: #ef4444;")
         QApplication.processEvents()
@@ -945,16 +1046,27 @@ class NotchgentHUD(QWidget):
         self.key_sent_signal.emit(success, key_str)
 
     def _on_key_sent(self, success: bool, key_str: str):
+        self.is_sending_keys = False
+        release_all_modifiers()
         self.ensure_topmost()
+        ws = self.current_workspace_hints[0] if self.current_workspace_hints else ""
         if success:
-            self.status_label.setText(f"Sent {key_str} ✓")
+            if ws:
+                self.status_label.setText(f"Sent {key_str} ({ws}) ✓")
+            else:
+                self.status_label.setText(f"Sent {key_str} ✓")
             self.status_dot.setStyleSheet("color: #10b981;")
         else:
-            self.status_label.setText("VS Code not found")
+            if ws:
+                self.status_label.setText(f"'{ws}' not found")
+            else:
+                self.status_label.setText("VS Code not found")
             self.status_dot.setStyleSheet("color: #f59e0b;")
         QTimer.singleShot(1800, self._restore_idle_label)
 
     def _watchdog_check(self):
+        self.is_sending_keys = False
+        release_all_modifiers()
         if self.status_label.text().startswith("Sending"):
             if self.auto_movie_active:
                 mins, secs = divmod(self.auto_countdown, 60)
@@ -1054,10 +1166,12 @@ class NotchgentHUD(QWidget):
             return
 
         def on_1():
-            QTimer.singleShot(0, self.on_approve_clicked)
+            release_all_modifiers()
+            QTimer.singleShot(60, self.on_approve_clicked)
 
         def on_2():
-            QTimer.singleShot(0, self.on_deny_clicked)
+            release_all_modifiers()
+            QTimer.singleShot(60, self.on_deny_clicked)
 
         try:
             hotkeys = {
