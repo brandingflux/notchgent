@@ -3,6 +3,26 @@
 > **Always-on-Top "Dynamic Island" HUD for Antigravity & VS Code on Windows.**  
 > Watch movies, streams, or focus on other apps in fullscreen while Antigravity agents code in the background. Review and approve pending commands with 1 click or a global hotkey—**without Alt-Tabbing, without window focus popups, and without video interruptions.**
 
+<p align="center">
+  <img src="assets/notchgent-expanded.png" alt="Notchgent Floating Dynamic Island HUD" width="780" />
+</p>
+
+---
+
+## Visual Showcase
+
+| 1. Collapsed Notch | 2. Pending & Countdown | 3. Auto-Executing Dispatch |
+| :---: | :---: | :---: |
+| <img src="assets/notch-collapsed-closeup.png" alt="Notchgent Collapsed Notch" width="270" /> | <img src="assets/notch-pending-closeup.png" alt="Notchgent Pending Approval" width="270" /> | <img src="assets/notch-auto-action-closeup.png" alt="Notchgent Auto Executing" width="270" /> |
+| *Flush top bezel, pulsating orange stroke* | *Live workspace identifier & countdown* | *15ms background keystroke injection* |
+
+<br/>
+
+<p align="center">
+  <b>Expanded HUD • Command Preview & Universal Hotkeys</b><br/>
+  <img src="assets/notch-expanded-closeup.png" alt="Notchgent Expanded HUD" width="680" />
+</p>
+
 ---
 
 ## Highlights
@@ -135,6 +155,7 @@ To compile a single, zero-dependency release `.exe`:
 notchgent/
 ├── dist/
 │   └── Notchgent.exe   # Compiled standalone release binary (zero dependencies)
+├── assets/             # Visual showcase assets, screenshots, and diagrams
 ├── notchgent.py        # Main application: PyQt6 HUD, Win32 window manager & transcript watcher
 ├── make_icon.py        # High-res multi-resolution icon generator
 ├── app_icon.ico        # Application and taskbar icon (256x256 down to 16x16)
@@ -144,6 +165,7 @@ notchgent/
 ├── stop.bat            # Graceful termination script
 ├── .notchgent.pid      # Single-instance process ID tracking file
 ├── config.json         # User configuration settings (geometry, hotkeys, opacity)
+├── RELEASE.md          # GitHub release notes and version changelog
 └── README.md           # Project documentation
 ```
 

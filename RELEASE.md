@@ -3,6 +3,15 @@
 > **Watch movies, streams, and games in fullscreen while AI agents code in the background.**  
 > Review and approve Antigravity CLI / VS Code actions with 1 click or a global hotkey—**without Alt-Tabbing, without window popups, and without interrupting your video.**
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/brandingflux/notchgent/main/assets/notchgent-expanded.png" alt="Notchgent Floating Dynamic Island HUD" width="780" />
+</p>
+
+| 1. Collapsed Notch | 2. Pending & Countdown | 3. Auto-Executing Dispatch |
+| :---: | :---: | :---: |
+| <img src="https://raw.githubusercontent.com/brandingflux/notchgent/main/assets/notch-collapsed-closeup.png" alt="Notchgent Collapsed Notch" width="250" /> | <img src="https://raw.githubusercontent.com/brandingflux/notchgent/main/assets/notch-pending-closeup.png" alt="Notchgent Pending Approval" width="250" /> | <img src="https://raw.githubusercontent.com/brandingflux/notchgent/main/assets/notch-auto-action-closeup.png" alt="Notchgent Auto Executing" width="250" /> |
+| *Flush top bezel, pulsating orange stroke* | *Live workspace identifier & countdown* | *15ms background auto-dispatch* |
+
 ---
 
 ## What's New in v1.0.0
