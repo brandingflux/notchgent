@@ -484,9 +484,9 @@ class NotchgentHUD(QWidget):
         self.setMinimumSize(300, 40)
         self.setMaximumSize(650, 320)
 
-        # Outer Layout (0px on top for flush screen edge, padding on sides & bottom for shadow)
+        # Outer Layout (0px margins: frame exactly matches window, eliminating any negative layered window bounding box)
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(12, 0, 12, 14)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
         # Main Capsule Frame
@@ -496,14 +496,6 @@ class NotchgentHUD(QWidget):
         self.frame_layout.setContentsMargins(16, 7, 16, 7)
         self.frame_layout.setSpacing(8)
         self.frame_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        # Drop Shadow (radiates downward from notch into screen)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        shadow.setOffset(0, 4)
-        self.frame.setGraphicsEffect(shadow)
-        self.frame_shadow = shadow
 
         # --- Compact Header Bar (Always visible) ---
         self.header_widget = QWidget()
@@ -748,7 +740,7 @@ class NotchgentHUD(QWidget):
 
     def collapse(self):
         self.is_expanded = False
-        target_w, target_h = 404, 58
+        target_w, target_h = 390, 48
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
@@ -772,7 +764,7 @@ class NotchgentHUD(QWidget):
     def expand(self):
         self.is_expanded = True
         self.expanded_widget.show()
-        target_w, target_h = 564, 238
+        target_w, target_h = 540, 224
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
@@ -1021,13 +1013,6 @@ class NotchgentHUD(QWidget):
         g = int(110 + val * 45)
         b = int(20 + val * 25)
 
-        # Pulse drop shadow with glowing warm aura
-        if hasattr(self, "frame_shadow") and self.frame_shadow:
-            shadow_alpha = int(35 + val * 125)
-            shadow_blur = int(16 + val * 16)
-            self.frame_shadow.setColor(QColor(249, 115, 22, shadow_alpha))
-            self.frame_shadow.setBlurRadius(shadow_blur)
-
         self.frame.setStyleSheet(f"""
             #MainFrame {{
                 background-color: rgba(18, 20, 26, 0.90);
@@ -1052,9 +1037,6 @@ class NotchgentHUD(QWidget):
                 border-bottom-right-radius: 20px;
             }
         """)
-        if hasattr(self, "frame_shadow") and self.frame_shadow:
-            self.frame_shadow.setColor(QColor(0, 0, 0, 180))
-            self.frame_shadow.setBlurRadius(20)
 
     def on_movie_timer_tick(self):
         if self.auto_movie_active:
