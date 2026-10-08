@@ -8,6 +8,9 @@
 ## Highlights
 
 - **Fullscreen Overlay Persistence**: Floats permanently on top of fullscreen video players (Windows Media Player, VLC, MPC-HC, Chrome, Netflix, etc.) via continuous `HWND_TOPMOST` re-assertion that bypasses Windows DWM fullscreen suppression.
+- **True Screen Notch Geometry**: Anchored flush to the top bezel of your monitor (`y = 0`) with sharp top corners (`0px`) and smooth 20px rounded bottom corners for an authentic hardware-notch aesthetic.
+- **Apple Dynamic Island Spring Physics**: Features organic fluid spring animations powered by `QPropertyAnimation` (`OutBack` easing curve with spring bounce on expand, `OutCubic` on collapse).
+- **Signature Orange Border & Auto Pulsation**: Framed by a vibrant 1.5px orange border stroke (`#f97316`) that smoothly breathes with an organic 25fps pulsation when **Auto Mode** is engaged.
 - **Zero Video Interruption**: Approving an action briefly shifts focus in the background for ~15ms via native Win32 `keybd_event`, then **instantly pins your fullscreen movie player back on top**. VS Code never pops up or covers your movie.
 - **Dynamic Multi-Workspace Routing**: If you have multiple VS Code windows open across different projects (e.g. `TTS`, `FFTL-light-astro-theme`, `notchgent`), Notchgent inspects the pending tool call's working directory (`Cwd`), target file, and active `agy.exe` environment to **dynamically target the exact VS Code window where that agent is running**.
 - **Workspace Identifier**: The island header displays the active workspace name (e.g. `Approval Needed • TTS`), so you always know which project needs your input.
@@ -66,11 +69,44 @@ flowchart TD
 
 ---
 
+## System Requirements & Compatibility
+
+### Architecture & Platform Support
+
+| Architecture | Supported? | Details |
+| :--- | :---: | :--- |
+| **x86_64 / AMD64 (64-bit)** | **Yes (Native)** | Built with 64-bit Python 3.13 on Windows PE. Runs at full native performance on modern Intel and AMD 64-bit systems. |
+| **ARM64 (Windows on ARM)** | **Yes (Emulated)** | Runs on Windows 11 ARM64 devices (Surface Pro, Snapdragon X Elite / Copilot+ PCs) via Microsoft Prism x64 emulation. |
+| **x86 (32-bit Legacy)** | **No** | 32-bit Windows is not supported (the executable targets 64-bit pointer architectures). |
+
+### Operating System Support
+
+| OS | Status | Notes |
+| :--- | :---: | :--- |
+| **Windows 11 (64-bit)** | **Optimal** | Recommended. Supports all modern DWM borderless rendering attributes and fluid animations. |
+| **Windows 10 (64-bit, 1809+)** | **Supported** | Full compatibility with Win32 focus redirection, PyQt6 rendering, and global hotkeys. |
+| **macOS / Linux** | **No** | Not supported. Notchgent utilizes native Win32 subsystems (`user32.dll`, `dwmapi.dll`, `AttachThreadInput`, `SendInput`, `HWND_TOPMOST`). |
+
+### End-User Prerequisites
+
+- **No Python Required**: The standalone `Notchgent.exe` bundles the Python 3.13 runtime, PyQt6 binaries, Qt6 libraries, and PyWin32 DLLs.
+- **Visual C++ Runtime**: Standard `Microsoft Visual C++ Redistributable 2015–2022 (x64)` (pre-installed on virtually all Windows 10/11 machines).
+- **Antigravity CLI / IDE**: Antigravity sessions must be active so the transcript log `~/.gemini/antigravity-cli/brain/<conversation-id>/.../transcript.jsonl` exists for Notchgent to monitor.
+- **Runtime Footprint**: ~99.6 MB executable disk size, ~45–60 MB RAM, and ~0% idle CPU (~0.1% during breathing pulse).
+
+### Permissions & Security
+
+1. **Standard User Privileges**: Sufficient for standard operation.
+2. **Elevated VS Code (UIPI Exception)**: If VS Code or your terminal is run *"As Administrator"*, Windows UIPI (User Interface Privilege Isolation) restricts keystrokes from standard-integrity processes. In this scenario, launch `Notchgent.exe` as Administrator as well.
+3. **Windows SmartScreen**: Because the executable is built locally and is not signed with an EV certificate, Windows Defender SmartScreen on fresh machines may show *"Unknown Publisher"*. Click **More info** → **Run anyway**.
+
+---
+
 ## Getting Started
 
-### Prerequisites
+### Development Prerequisites (Running from Source)
 
-- Windows 10 or 11
+- Windows 10 or 11 (64-bit)
 - Python 3.10+ (with `PyQt6`, `pywin32`, `psutil`, `pynput`, `pyautogui`)
 
 ```bash
