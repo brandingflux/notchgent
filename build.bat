@@ -36,6 +36,8 @@ python -m PyInstaller ^
     --hidden-import "remote_server" ^
     --hidden-import "tunnel_manager" ^
     --hidden-import "remote_dialog" ^
+    --hidden-import "icons" ^
+    --hidden-import "PyQt6.QtSvg" ^
     --clean ^
     notchgent.py
 

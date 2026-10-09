@@ -14,15 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Developers can now scan a dynamic QR code on their monitor and approve Antigravity CLI actions from anywhere in the world (over cellular 4G/5G or local Wi-Fi) while their PC remains running at home.
   - **Embedded HTTP & SSE Server (`remote_server.py`)**: Runs an asynchronous micro-server on port 5151 serving a dark-mode mobile web application with sub-second Server-Sent Events (SSE) and an active 750ms fast-polling watchdog.
   - **Zero-Config Cloudflare Quick Tunnel (`tunnel_manager.py`)**: Automatically manages `cloudflared.exe` to provision instant, encrypted public HTTPS access (`*.trycloudflare.com`) with zero accounts, zero API keys, and zero router port-forwarding required.
-  - **QR Pairing Modal (`remote_dialog.py`)**: Integrated flyout card on the desktop HUD showing the live high-resolution QR code, one-click "Copy Remote Link" button, and "Rotate Key" button for immediate session revocation.
+  - **QR Pairing Modal (`remote_dialog.py`)**: Integrated flyout card on the desktop HUD showing the live high-resolution QR code, one-click "Copy Link" button, and "Rotate Key" button for immediate session revocation.
   - **Mobile Dynamic Island Web App**: Dark glass aesthetic styled to match Notchgent, featuring Web Audio alert chimes, tactile haptic vibration (`navigator.vibrate`), live command and diff viewers, and responsive thumb buttons.
   - **Optimistic UI Feedback**: Instant checkmark transition on phone upon approval tap with step deduplication to guarantee buttons never stick or hang.
   - **Windows Power Management (`SetThreadExecutionState`)**: Keeps Windows in an active execution state while remote mode is active, allowing displays to sleep while preventing PC suspension during autonomous coding tasks.
+- **Pixel-Crisp Vector SVG Icon Engine (`icons.py`)**:
+  - Replaced all system emojis across the entire application with dedicated vector SVG icons (`phone`, `clapperboard`, `terminal`, `file_edit`, `file_plus`, `help_circle`, `check`, `x`, `copy`, `rotate`, `wifi`, `zap`, `shield_check`).
+  - Resolution-independent rendering rendered at 2x High-DPI scale for sharp lines on 4K/retina monitors and mobile OLED screens.
+  - Inline vector SVG injection in the mobile PWA with zero external asset dependencies.
 
 ### 🛠️ Changed
-- **Header Bar**: Expanded capsule width to accommodate the new `[ 📱 Remote ]` toggle button alongside `[ 🎬 Auto ]`.
-- **Dynamic Connection Badge**: Button dynamically displays active mobile connection counts (e.g. `📱 1 Online`) in vibrant emerald green.
-- **Build System**: Updated `Notchgent.spec` and `build.bat` to bundle `cloudflared.exe`, `qrcode`, and all remote networking modules into the standalone single-file binary.
+- **HUD Interface**: Replaced unicode emojis on header buttons (`Remote`, `Auto`, `Close`), action buttons (`Approve`, `Reject`), and tool badge headers (`Shell Command`, `Edit File`, `Create File`, `Question`) with vector SVG icons.
+- **Dynamic Connection Badge**: Button dynamically displays active mobile connection counts (e.g. `1 Online`) with emerald green SVG indicator.
+- **Build System**: Updated `Notchgent.spec` and `build.bat` to bundle `icons.py`, `PyQt6.QtSvg`, `cloudflared.exe`, `qrcode`, and all remote networking modules into the standalone single-file binary.
 - **Process Management**: Improved `build.bat` to terminate lingering instances before building, preventing `PermissionError [WinError 5]`.
 
 ---

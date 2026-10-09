@@ -23,7 +23,7 @@ os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
 from PyQt6.QtCore import (
-    Qt, QPoint, QRect, pyqtSignal, QObject, QTimer,
+    Qt, QPoint, QRect, QSize, pyqtSignal, QObject, QTimer,
     QPropertyAnimation, QEasingCurve
 )
 from PyQt6.QtGui import (
@@ -33,6 +33,9 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGraphicsDropShadowEffect, QFrame, QTextEdit
 )
+
+from icons import get_svg_icon, get_svg_pixmap
+
 
 import win32gui
 import win32process
@@ -663,19 +666,25 @@ class NotchgentHUD(QWidget):
         self.status_label.setFont(font)
         self.status_label.setMinimumWidth(130)
 
-        self.remote_mode_btn = QPushButton("📱 Remote")
+        self.remote_mode_btn = QPushButton("Remote")
         self.remote_mode_btn.setObjectName("RemoteModeBtn")
+        self.remote_mode_btn.setIcon(get_svg_icon("phone", "#ffffff", 13))
+        self.remote_mode_btn.setIconSize(QSize(13, 13))
         self.remote_mode_btn.setFixedSize(86, 24)
         self.remote_mode_btn.clicked.connect(self.toggle_remote_dialog)
 
-        self.movie_mode_btn = QPushButton("🎬 Auto")
+        self.movie_mode_btn = QPushButton("Auto")
         self.movie_mode_btn.setObjectName("MovieModeBtn")
+        self.movie_mode_btn.setIcon(get_svg_icon("clapperboard", "#ffffff", 13))
+        self.movie_mode_btn.setIconSize(QSize(13, 13))
         self.movie_mode_btn.setCheckable(True)
         self.movie_mode_btn.setFixedSize(80, 24)
         self.movie_mode_btn.clicked.connect(self.toggle_movie_mode)
 
-        self.close_btn = QPushButton("✕")
+        self.close_btn = QPushButton()
         self.close_btn.setObjectName("CloseBtn")
+        self.close_btn.setIcon(get_svg_icon("x", "#9ca3af", 11))
+        self.close_btn.setIconSize(QSize(11, 11))
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.close)
 
@@ -693,10 +702,29 @@ class NotchgentHUD(QWidget):
         self.expanded_layout.setContentsMargins(0, 6, 0, 0)
         self.expanded_layout.setSpacing(8)
 
-        # Badge
-        self.tool_badge = QLabel("⚡ Tool Execution")
-        self.tool_badge.setObjectName("ToolBadge")
-        self.expanded_layout.addWidget(self.tool_badge)
+        # Badge Container
+        badge_row = QHBoxLayout()
+        badge_row.setContentsMargins(0, 0, 0, 0)
+
+        self.tool_badge_frame = QFrame()
+        self.tool_badge_frame.setObjectName("ToolBadge")
+        badge_layout = QHBoxLayout(self.tool_badge_frame)
+        badge_layout.setContentsMargins(6, 2, 8, 2)
+        badge_layout.setSpacing(6)
+
+        self.tool_badge_icon = QLabel()
+        self.tool_badge_icon.setFixedSize(14, 14)
+        self.tool_badge_icon.setPixmap(get_svg_pixmap("zap", "#c4b5fd", 14))
+
+        self.tool_badge_text = QLabel("Tool Execution")
+        self.tool_badge_text.setObjectName("ToolBadgeText")
+
+        badge_layout.addWidget(self.tool_badge_icon)
+        badge_layout.addWidget(self.tool_badge_text)
+
+        badge_row.addWidget(self.tool_badge_frame)
+        badge_row.addStretch()
+        self.expanded_layout.addLayout(badge_row)
 
         # Details Box
         self.details_box = QTextEdit()
@@ -705,17 +733,21 @@ class NotchgentHUD(QWidget):
         self.details_box.setFixedHeight(75)
         self.expanded_layout.addWidget(self.details_box)
 
-        # Buttons Row: [ ✓ 1. Approve (Alt+1) ] [ ✕ 2. Reject (Alt+2) ]
+        # Buttons Row: [ Approve (Alt+1) ] [ Reject (Alt+2) ]
         self.btn_layout = QHBoxLayout()
         self.btn_layout.setSpacing(8)
 
-        self.approve_btn = QPushButton("✓ 1. Approve (Alt+1)")
+        self.approve_btn = QPushButton(" 1. Approve (Alt+1)")
         self.approve_btn.setObjectName("ApproveBtn")
+        self.approve_btn.setIcon(get_svg_icon("check", "#ffffff", 14))
+        self.approve_btn.setIconSize(QSize(14, 14))
         self.approve_btn.setFixedHeight(34)
         self.approve_btn.clicked.connect(self.on_approve_clicked)
 
-        self.deny_btn = QPushButton("✕ 2 (Alt+2)")
+        self.deny_btn = QPushButton(" 2 (Alt+2)")
         self.deny_btn.setObjectName("DenyBtn")
+        self.deny_btn.setIcon(get_svg_icon("x", "#fca5a5", 13))
+        self.deny_btn.setIconSize(QSize(13, 13))
         self.deny_btn.setFixedHeight(34)
         self.deny_btn.clicked.connect(self.on_deny_clicked)
 
@@ -799,14 +831,16 @@ class NotchgentHUD(QWidget):
                 color: #ef4444;
             }
             #ToolBadge {
-                background-color: rgba(139, 92, 246, 0.25);
-                color: #c4b5fd;
+                background-color: rgba(139, 92, 246, 0.22);
                 border: 1px solid rgba(139, 92, 246, 0.45);
-                border-radius: 6px;
-                padding: 3px 8px;
+                border-radius: 8px;
+            }
+            #ToolBadgeText {
+                color: #c4b5fd;
                 font-size: 11px;
                 font-weight: 600;
             }
+
             #DetailsBox {
                 background-color: rgba(10, 12, 16, 0.60);
                 border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1025,13 +1059,16 @@ class NotchgentHUD(QWidget):
             self.pending_movie_hwnd = None
 
         # Set Badge
-        badges = {
-            "run_command": "⚡ Shell Command",
-            "replace_file_content": "✏️ Edit File",
-            "write_to_file": "📄 Create File",
-            "ask_question": "❓ Question"
+        tool_icons = {
+            "run_command": ("terminal", "Shell Command"),
+            "replace_file_content": ("file_edit", "Edit File"),
+            "write_to_file": ("file_plus", "Create File"),
+            "ask_question": ("help_circle", "Question")
         }
-        self.tool_badge.setText(badges.get(tool_name, f"🛠️ {tool_name}"))
+        icon_name, badge_label = tool_icons.get(tool_name, ("zap", tool_name))
+        self.tool_badge_icon.setPixmap(get_svg_pixmap(icon_name, "#c4b5fd", 14))
+        self.tool_badge_text.setText(badge_label)
+
 
         # Details
         if tool_name == "run_command":
@@ -1077,7 +1114,7 @@ class NotchgentHUD(QWidget):
     def on_action_cleared(self):
         self.status_dot.setStyleSheet("color: #10b981;")  # Green
         if self.auto_movie_active:
-            self.status_label.setText("🎬 Auto Active")
+            self.status_label.setText("Auto Active")
         else:
             self.status_label.setText("Notchgent • Idle")
         self.remote_server.update_state("idle", None, "", self.auto_movie_active)
@@ -1138,9 +1175,9 @@ class NotchgentHUD(QWidget):
         ws = self.current_workspace_hints[0] if self.current_workspace_hints else ""
         if success:
             if ws:
-                self.status_label.setText(f"Sent {key_str} ({ws}) ✓")
+                self.status_label.setText(f"Sent {key_str} ({ws})")
             else:
-                self.status_label.setText(f"Sent {key_str} ✓")
+                self.status_label.setText(f"Sent {key_str}")
             self.status_dot.setStyleSheet("color: #10b981;")
         else:
             if ws:
@@ -1157,7 +1194,7 @@ class NotchgentHUD(QWidget):
         if self.status_label.text().startswith("Sending"):
             if self.auto_movie_active:
                 mins, secs = divmod(self.auto_countdown, 60)
-                self.status_label.setText(f"🎬 Auto ({mins:02d}:{secs:02d})")
+                self.status_label.setText(f"Auto ({mins:02d}:{secs:02d})")
                 self.status_dot.setStyleSheet("color: #f97316;")
             else:
                 self.status_label.setText("Notchgent • Idle")
@@ -1167,7 +1204,7 @@ class NotchgentHUD(QWidget):
         if not self.is_expanded:
             if self.auto_movie_active:
                 mins, secs = divmod(self.auto_countdown, 60)
-                self.status_label.setText(f"🎬 Auto ({mins:02d}:{secs:02d})")
+                self.status_label.setText(f"Auto ({mins:02d}:{secs:02d})")
                 self.status_dot.setStyleSheet("color: #f97316;")
             else:
                 self.status_label.setText("Notchgent • Idle")
@@ -1177,8 +1214,9 @@ class NotchgentHUD(QWidget):
         if self.movie_mode_btn.isChecked():
             self.auto_movie_active = True
             self.auto_countdown = 900  # 15 mins
-            self.status_label.setText("🎬 Auto (15m)")
+            self.status_label.setText("Auto (15m)")
             self.status_dot.setStyleSheet("color: #f97316;")
+            self.movie_mode_btn.setIcon(get_svg_icon("clapperboard", "#ffffff", 13))
             # Start pulsating border animation
             self.pulse_phase = 0.0
             self.pulse_timer.start()
@@ -1191,9 +1229,11 @@ class NotchgentHUD(QWidget):
             # Stop pulsation and restore steady orange stroke
             self.pulse_timer.stop()
             self._reset_border_to_steady()
-            self.movie_mode_btn.setText("🎬 Auto")
+            self.movie_mode_btn.setText("Auto")
+            self.movie_mode_btn.setIcon(get_svg_icon("clapperboard", "#ffffff", 13))
             self.status_label.setText("Notchgent • Idle")
             self.status_dot.setStyleSheet("color: #10b981;")
+
 
         self.remote_server.update_state(
             self.remote_server._state.get("status", "idle"),
@@ -1253,7 +1293,7 @@ class NotchgentHUD(QWidget):
                 return
 
             mins, secs = divmod(self.auto_countdown, 60)
-            self.movie_mode_btn.setText(f"🎬 {mins:02d}:{secs:02d}")
+            self.movie_mode_btn.setText(f"{mins:02d}:{secs:02d}")
 
     def setup_hotkeys(self):
         if not PYNPUT_AVAILABLE:
@@ -1319,6 +1359,7 @@ class NotchgentHUD(QWidget):
         local_url = f"http://{self.tunnel_manager.local_ip}:{self.remote_server.port}/#token={self.remote_server.token}"
         if self.remote_dialog:
             self.remote_dialog.set_tunnel_url(full_url, local_url)
+        self.remote_mode_btn.setIcon(get_svg_icon("phone", "#34d399", 13))
         self.remote_mode_btn.setStyleSheet("""
             #RemoteModeBtn {
                 background-color: rgba(16, 185, 129, 0.22);
@@ -1334,16 +1375,17 @@ class NotchgentHUD(QWidget):
     def _on_tunnel_status_changed(self, status: str):
         if self.remote_dialog:
             if status == "Connected":
-                self.remote_dialog.status_pill.setText("🟢 Secure Tunnel Active")
+                self.remote_dialog.status_pill.setText("Secure Tunnel Active")
             elif status.startswith("Error") or status == "Offline":
-                self.remote_dialog.status_pill.setText(f"🟡 {status}")
+                self.remote_dialog.status_pill.setText(status)
 
     def _sync_remote_devices(self):
         count = self.remote_server.connected_devices_count
         if self.remote_dialog and self.remote_dialog.isVisible():
             self.remote_dialog.update_connection_count(count)
         if count > 0:
-            self.remote_mode_btn.setText(f"📱 {count} Online")
+            self.remote_mode_btn.setText(f"{count} Online")
+            self.remote_mode_btn.setIcon(get_svg_icon("phone", "#34d399", 13))
             self.remote_mode_btn.setStyleSheet("""
                 #RemoteModeBtn {
                     background-color: rgba(16, 185, 129, 0.25);
@@ -1356,7 +1398,8 @@ class NotchgentHUD(QWidget):
                 }
             """)
         elif self.tunnel_manager.public_url:
-            self.remote_mode_btn.setText("📱 Remote")
+            self.remote_mode_btn.setText("Remote")
+            self.remote_mode_btn.setIcon(get_svg_icon("phone", "#34d399", 13))
             self.remote_mode_btn.setStyleSheet("""
                 #RemoteModeBtn {
                     background-color: rgba(16, 185, 129, 0.18);
@@ -1369,7 +1412,9 @@ class NotchgentHUD(QWidget):
                 }
             """)
         else:
-            self.remote_mode_btn.setText("📱 Remote")
+            self.remote_mode_btn.setText("Remote")
+            self.remote_mode_btn.setIcon(get_svg_icon("phone", "#ffffff", 13))
+
 
     def _handle_remote_action(self, key_str: str):
         if key_str == "1":

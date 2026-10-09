@@ -39,6 +39,9 @@ def generate_qr_pixmap(data: str, size: int = 220) -> QPixmap:
         return pm
 
 
+from icons import get_svg_icon, get_svg_pixmap
+
+
 class RemoteDialog(QWidget):
     """Floating modal window showing the pairing QR code and connection status."""
 
@@ -76,17 +79,23 @@ class RemoteDialog(QWidget):
         # Header row
         hdr_layout = QHBoxLayout()
         hdr_layout.setContentsMargins(0, 0, 0, 0)
+        hdr_layout.setSpacing(8)
 
-        title = QLabel("📱 Mobile Remote")
+        title_icon = QLabel()
+        title_icon.setPixmap(get_svg_pixmap("phone", "#f97316", 16))
+
+        title = QLabel("Mobile Remote")
         title.setObjectName("DialogTitle")
         font = QFont("Segoe UI", 12, QFont.Weight.Bold)
         title.setFont(font)
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
         close_btn.setObjectName("DialogCloseBtn")
+        close_btn.setIcon(get_svg_icon("x", "#9ca3af", 12))
         close_btn.setFixedSize(22, 22)
         close_btn.clicked.connect(self.close)
 
+        hdr_layout.addWidget(title_icon)
         hdr_layout.addWidget(title)
         hdr_layout.addStretch()
         hdr_layout.addWidget(close_btn)
@@ -114,7 +123,7 @@ class RemoteDialog(QWidget):
         frame_layout.addWidget(qr_container)
 
         # Status badge
-        self.status_pill = QLabel("⚪ Generating tunnel...")
+        self.status_pill = QLabel("Generating tunnel...")
         self.status_pill.setObjectName("StatusPill")
         self.status_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
         frame_layout.addWidget(self.status_pill)
@@ -123,13 +132,15 @@ class RemoteDialog(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
-        self.copy_btn = QPushButton("📋 Copy Link")
+        self.copy_btn = QPushButton("Copy Link")
         self.copy_btn.setObjectName("ActionBtn")
+        self.copy_btn.setIcon(get_svg_icon("copy", "#fb923c", 13))
         self.copy_btn.setFixedHeight(30)
         self.copy_btn.clicked.connect(self.copy_link)
 
-        self.rotate_btn = QPushButton("🔄 Rotate Key")
+        self.rotate_btn = QPushButton("Rotate Key")
         self.rotate_btn.setObjectName("ActionBtnSecondary")
+        self.rotate_btn.setIcon(get_svg_icon("rotate", "#d1d5db", 13))
         self.rotate_btn.setFixedHeight(30)
         self.rotate_btn.clicked.connect(self._on_rotate_clicked)
 
@@ -137,11 +148,21 @@ class RemoteDialog(QWidget):
         btn_layout.addWidget(self.rotate_btn, 1)
         frame_layout.addLayout(btn_layout)
 
-        # Local LAN label
-        self.lan_label = QLabel("🏠 Wi-Fi: Ready")
+        # Local LAN row
+        lan_layout = QHBoxLayout()
+        lan_layout.setContentsMargins(0, 0, 0, 0)
+        lan_layout.setSpacing(5)
+        lan_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lan_icon = QLabel()
+        self.lan_icon.setPixmap(get_svg_pixmap("wifi", "#6b7280", 12))
+
+        self.lan_label = QLabel("Home Wi-Fi: Ready")
         self.lan_label.setObjectName("LanLabel")
-        self.lan_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        frame_layout.addWidget(self.lan_label)
+
+        lan_layout.addWidget(self.lan_icon)
+        lan_layout.addWidget(self.lan_label)
+        frame_layout.addLayout(lan_layout)
 
         layout.addWidget(self.frame)
 
@@ -231,7 +252,7 @@ class RemoteDialog(QWidget):
         if public_url:
             pix = generate_qr_pixmap(public_url, size=210)
             self.qr_label.setPixmap(pix)
-            self.status_pill.setText("🟢 Secure Tunnel Active")
+            self.status_pill.setText("Secure Tunnel Active")
             self.status_pill.setStyleSheet("""
                 background-color: rgba(16, 185, 129, 0.14);
                 color: #34d399;
@@ -241,29 +262,39 @@ class RemoteDialog(QWidget):
         else:
             self.qr_label.clear()
             self.qr_label.setText("Generating tunnel...")
-            self.status_pill.setText("🟡 Connecting...")
+            self.status_pill.setText("Connecting...")
 
         if local_url:
-            self.lan_label.setText(f"🏠 Home Wi-Fi: {local_url.split('/#')[0]}")
+            self.lan_label.setText(f"Home Wi-Fi: {local_url.split('/#')[0]}")
 
     def update_connection_count(self, count: int):
         if count > 0:
-            self.status_pill.setText(f"🟢 {count} Phone{'s' if count > 1 else ''} Connected")
+            self.status_pill.setText(f"{count} Phone{'s' if count > 1 else ''} Connected")
         elif self.current_url:
-            self.status_pill.setText("🟢 Ready for Phone Pairing")
+            self.status_pill.setText("Ready for Phone Pairing")
 
     def copy_link(self):
         url = self.current_url or self.current_local_url
         if url:
             cb = QApplication.clipboard()
             cb.setText(url)
-            self.copy_btn.setText("✓ Copied!")
-            QTimer.singleShot(1500, lambda: self.copy_btn.setText("📋 Copy Link"))
+            self.copy_btn.setText(" Copied!")
+            self.copy_btn.setIcon(get_svg_icon("check", "#34d399", 13))
+            QTimer.singleShot(1500, self._restore_copy_btn)
+
+    def _restore_copy_btn(self):
+        self.copy_btn.setText(" Copy Link")
+        self.copy_btn.setIcon(get_svg_icon("copy", "#fb923c", 13))
 
     def _on_rotate_clicked(self):
         self.rotate_requested.emit()
-        self.rotate_btn.setText("✓ Rotated")
-        QTimer.singleShot(1500, lambda: self.rotate_btn.setText("🔄 Rotate Key"))
+        self.rotate_btn.setText(" Rotated")
+        self.rotate_btn.setIcon(get_svg_icon("check", "#34d399", 13))
+        QTimer.singleShot(1500, self._restore_rotate_btn)
+
+    def _restore_rotate_btn(self):
+        self.rotate_btn.setText(" Rotate Key")
+        self.rotate_btn.setIcon(get_svg_icon("rotate", "#d1d5db", 13))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

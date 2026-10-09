@@ -326,7 +326,10 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="status-subtitle" id="statusSubtitle">PC Connected at Home</div>
       </div>
     </div>
-    <button class="auto-btn" id="autoBtn" onclick="toggleAutoMode()">🎬 Auto</button>
+    <button class="auto-btn" id="autoBtn" onclick="toggleAutoMode()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4z"/><path d="m4 11 3-6h4l-3 6"/><path d="m11 5 3 6"/><path d="m14 5 3 6"/><path d="m17 5 3 6"/><path d="M2 11h20"/></svg>
+      <span id="autoBtnText">Auto</span>
+    </button>
   </div>
 
   <!-- Main Card -->
@@ -335,7 +338,9 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
 
     <!-- Idle View -->
     <div class="idle-view" id="idleView">
-      <div class="idle-icon">⚡</div>
+      <div class="idle-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
       <div class="idle-title">Agent is Working</div>
       <div class="idle-desc">Whenever Antigravity requests approval, this screen will chime and spring open instantly.</div>
     </div>
@@ -343,7 +348,10 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
     <!-- Pending Action View -->
     <div class="action-view" id="actionView">
       <div class="badge-row">
-        <div class="tool-badge" id="toolBadge">⚡ Tool Execution</div>
+        <div class="tool-badge" id="toolBadge">
+          <span id="toolBadgeIcon" style="display:inline-flex;align-items:center;"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <span id="toolBadgeText">Tool Execution</span>
+        </div>
         <div class="workspace-tag" id="workspaceTag">Workspace</div>
       </div>
 
@@ -353,10 +361,12 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
 
       <div class="btn-row">
         <button class="btn btn-approve" id="approveBtn" onclick="dispatchAction('1')">
-          ✓ Approve
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>Approve</span>
         </button>
         <button class="btn btn-reject" id="rejectBtn" onclick="dispatchAction('2')">
-          ✕ Reject
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <span>Reject</span>
         </button>
       </div>
     </div>
@@ -368,8 +378,12 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="conn-dot" id="connDot"></div>
       <span id="connText">Secure Tunnel Active</span>
     </div>
-    <div id="batteryTime">Encrypted Session</div>
+    <div id="batteryTime" style="display:flex;align-items:center;gap:4px;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+      <span>Encrypted Session</span>
+    </div>
   </div>
+
 
   <script>
     // Extract token from URL hash or query params
@@ -437,12 +451,13 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
 
       // Update Auto button state
       const autoBtn = document.getElementById('autoBtn');
+      const autoBtnText = document.getElementById('autoBtnText');
       if (isAutoActive) {
         autoBtn.classList.add('active');
-        autoBtn.textContent = '🎬 Active';
+        if (autoBtnText) autoBtnText.textContent = 'Active';
       } else {
         autoBtn.classList.remove('active');
-        autoBtn.textContent = '🎬 Auto';
+        if (autoBtnText) autoBtnText.textContent = 'Auto';
       }
 
       const statusDot = document.getElementById('statusDot');
@@ -471,14 +486,27 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
         idleView.style.display = 'none';
         actionView.style.display = 'flex';
 
-        // Set tool badge
-        const toolBadges = {
-          'run_command': '⚡ Shell Command',
-          'replace_file_content': '✏️ Edit File',
-          'write_to_file': '📄 Create File',
-          'ask_question': '❓ Question'
+        // Set tool badge with vector SVG icon
+        const SVGS = {
+          terminal: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+          file_edit: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+          file_plus: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+          help_circle: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+          zap: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
         };
-        document.getElementById('toolBadge').textContent = toolBadges[action.tool_name] || ('🛠️ ' + action.tool_name);
+
+        const toolConfigs = {
+          'run_command': { svg: SVGS.terminal, name: 'Shell Command' },
+          'replace_file_content': { svg: SVGS.file_edit, name: 'Edit File' },
+          'write_to_file': { svg: SVGS.file_plus, name: 'Create File' },
+          'ask_question': { svg: SVGS.help_circle, name: 'Question' }
+        };
+
+        const conf = toolConfigs[action.tool_name] || { svg: SVGS.zap, name: action.tool_name };
+        const badgeIconEl = document.getElementById('toolBadgeIcon');
+        const badgeTextEl = document.getElementById('toolBadgeText');
+        if (badgeIconEl) badgeIconEl.innerHTML = conf.svg;
+        if (badgeTextEl) badgeTextEl.textContent = conf.name;
         document.getElementById('workspaceTag').textContent = workspace || 'antigravity';
 
         // Format details
@@ -500,7 +528,7 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
         currentStep = -1;
         lastDispatchedStep = -1;
         statusDot.className = 'status-dot';
-        statusTitle.textContent = isAutoActive ? '🎬 Auto Mode Active' : 'Notchgent • Idle';
+        statusTitle.textContent = isAutoActive ? 'Auto Mode Active' : 'Notchgent • Idle';
         statusSubtitle.textContent = workspace ? 'Project: ' + workspace : 'PC Connected at Home';
 
         idleView.style.display = 'flex';
@@ -530,15 +558,16 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
         const resData = await res.json();
         if (resData.ok) {
           lastDispatchedStep = currentStep;
-          showFeedback(key === '1' ? 'Dispatched Approval (1) ✓' : 'Dispatched Reject (2) ✕', key === '1' ? 'success' : 'danger');
+          showFeedback(key === '1' ? 'Dispatched Approval (1)' : 'Dispatched Reject (2)', key === '1' ? 'success' : 'danger');
 
           // Immediately clear the action card and restore idle state on phone
           statusDot.className = 'status-dot';
-          statusTitle.textContent = key === '1' ? 'Sent 1 ✓' : 'Sent 2 ✕';
+          statusTitle.textContent = key === '1' ? 'Sent 1' : 'Sent 2';
           statusSubtitle.textContent = 'Dispatched to PC';
           document.getElementById('actionView').style.display = 'none';
           document.getElementById('idleView').style.display = 'flex';
         } else {
+
           showFeedback('Error: ' + (resData.error || 'Failed'), 'danger');
         }
       } catch (e) {

@@ -31,7 +31,8 @@
 - **True Screen Notch Geometry**: Anchored flush to the top bezel of your monitor (`y = 0`) with sharp top corners (`0px`) and smooth 20px rounded bottom corners for an authentic hardware-notch aesthetic.
 - **Apple Dynamic Island Spring Physics**: Features organic fluid spring animations powered by `QPropertyAnimation` (`OutBack` easing curve with spring bounce on expand, `OutCubic` on collapse).
 - **Signature Orange Border & Auto Pulsation**: Framed by a vibrant 1.5px orange border stroke (`#f97316`) that smoothly breathes with an organic 25fps pulsation when **Auto Mode** is engaged.
-- **Mobile Remote Approvals (Anywhere in the World)**: Step away from your desk or leave your PC running at home. Click `[ 📱 Remote ]`, scan the QR code with your iPhone or Android camera, and review/approve pending commands over 5G/4G or local Wi-Fi. Features Web Audio chimes, haptic feedback, live syntax boxes, and single-click token rotation.
+- **Mobile Remote Approvals (Anywhere in the World)**: Step away from your desk or leave your PC running at home. Click **Remote**, scan the QR code with your iPhone or Android camera, and review/approve pending commands over 5G/4G or local Wi-Fi. Features Web Audio chimes, haptic feedback, live syntax boxes, and single-click token rotation.
+- **Pixel-Crisp Vector SVG Icons**: Replaced all emojis with dedicated vector SVG icons rendered at 2x High-DPI scaling for ultra-sharp rendering across desktop monitors and mobile OLED displays with zero external image dependencies.
 - **Zero Video Interruption**: Approving an action briefly shifts focus in the background for ~15ms via native Win32 `keybd_event`, then **instantly pins your fullscreen movie player back on top**. VS Code never pops up or covers your movie.
 - **Dynamic Multi-Workspace Routing**: If you have multiple VS Code windows open across different projects (e.g. `TTS`, `FFTL-light-astro-theme`, `notchgent`), Notchgent inspects the pending tool call's working directory (`Cwd`), target file, and active `agy.exe` environment to **dynamically target the exact VS Code window where that agent is running**.
 - **Workspace Identifier**: The island header displays the active workspace name (e.g. `Approval Needed • TTS`), so you always know which project needs your input.
@@ -39,6 +40,7 @@
 - **Zero-Hook Architecture**: Runs against stock Antigravity CLI without modifying `hooks.json` or intercepting terminal streams. It observes live JSONL transcripts directly.
 - **Universal Global Hotkeys**: Approve with <kbd>Alt</kbd>+<kbd>1</kbd>, <kbd>Alt</kbd>+<kbd>A</kbd>, or <kbd>F8</kbd>. Reject with <kbd>Alt</kbd>+<kbd>2</kbd>, <kbd>Alt</kbd>+<kbd>D</kbd>, or <kbd>F9</kbd>.
 - **Auto Re-minimization**: If VS Code was minimized to the taskbar, it receives the approval keystroke and is immediately tucked back into the taskbar (`SW_MINIMIZE`).
+
 
 ---
 
