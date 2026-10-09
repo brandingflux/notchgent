@@ -49,6 +49,27 @@ except ImportError:
     PYNPUT_AVAILABLE = False
 
 
+from remote_server import RemoteServer
+from tunnel_manager import TunnelManager
+from remote_dialog import RemoteDialog
+
+
+def set_keep_awake(enable: bool = True):
+    """Keep system awake (prevent PC sleep) while Notchgent is running."""
+    try:
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ES_AWAYMODE_REQUIRED = 0x00000040
+        if enable:
+            ctypes.windll.kernel32.SetThreadExecutionState(
+                ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
+            )
+        else:
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+    except Exception:
+        pass
+
+
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
@@ -523,10 +544,19 @@ class TranscriptWatcher(QObject):
 
 class NotchgentHUD(QWidget):
     key_sent_signal = pyqtSignal(bool, str)
+    remote_action_signal = pyqtSignal(str)
+    remote_toggle_auto_signal = pyqtSignal()
+    tunnel_url_signal = pyqtSignal(str)
+    tunnel_status_signal = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
         self.key_sent_signal.connect(self._on_key_sent)
+        self.remote_action_signal.connect(self._handle_remote_action)
+        self.remote_toggle_auto_signal.connect(self._handle_remote_toggle_auto)
+        self.tunnel_url_signal.connect(self._on_tunnel_url_discovered)
+        self.tunnel_status_signal.connect(self._on_tunnel_status_changed)
+
         self.is_expanded = False
         self.drag_pos = QPoint()
         self.auto_movie_active = False
@@ -538,6 +568,8 @@ class NotchgentHUD(QWidget):
         self.pinned_y = 0
         self.pinned_center_x = None
 
+        self.remote_dialog: Optional[RemoteDialog] = None
+
         # Pulsation for Auto Movie Mode
         self.pulse_phase = 0.0
         self.pulse_timer = QTimer(self)
@@ -546,18 +578,44 @@ class NotchgentHUD(QWidget):
         self.frame_shadow: Optional[QGraphicsDropShadowEffect] = None
 
         self.sound_mode = "beep"
+        remote_port = 5151
         config_path = os.path.join(SCRIPT_DIR, "config.json")
         if os.path.exists(config_path):
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     self.sound_mode = str(cfg.get("sound", "beep")).lower()
+                    remote_port = int(cfg.get("port", 5151))
             except Exception:
                 pass
 
         self.is_sending_keys = False
         self._auto_timer: Optional[QTimer] = None
         release_all_modifiers()
+
+        # Start Remote Server on local port
+        self.remote_server = RemoteServer(
+            port=remote_port,
+            on_action_callback=lambda k: self.remote_action_signal.emit(k) or True,
+            on_toggle_auto_callback=lambda: self.remote_toggle_auto_signal.emit() or self.auto_movie_active
+        )
+        self.remote_server.start()
+
+        # Start Tunnel Manager for zero-config remote access
+        self.tunnel_manager = TunnelManager(
+            local_port=remote_port,
+            on_url_ready=lambda u: self.tunnel_url_signal.emit(u),
+            on_status_change=lambda s: self.tunnel_status_signal.emit(s)
+        )
+        self.tunnel_manager.start()
+
+        # Timer to update remote device count in HUD button
+        self.remote_device_timer = QTimer(self)
+        self.remote_device_timer.timeout.connect(self._sync_remote_devices)
+        self.remote_device_timer.start(2000)
+
+        # Keep Windows awake while Notchgent is running
+        set_keep_awake(True)
 
         self.setup_ui()
         self.setup_watcher()
@@ -571,8 +629,8 @@ class NotchgentHUD(QWidget):
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowOpacity(1.0)
-        self.setMinimumSize(300, 40)
-        self.setMaximumSize(650, 320)
+        self.setMinimumSize(340, 40)
+        self.setMaximumSize(720, 340)
 
         # Outer Layout (0px margins: frame exactly matches window, eliminating any negative layered window bounding box)
         self.main_layout = QVBoxLayout(self)
@@ -603,12 +661,17 @@ class NotchgentHUD(QWidget):
         self.status_label.setObjectName("StatusLabel")
         font = QFont("Segoe UI", 10, QFont.Weight.DemiBold)
         self.status_label.setFont(font)
-        self.status_label.setMinimumWidth(140)
+        self.status_label.setMinimumWidth(130)
+
+        self.remote_mode_btn = QPushButton("📱 Remote")
+        self.remote_mode_btn.setObjectName("RemoteModeBtn")
+        self.remote_mode_btn.setFixedSize(86, 24)
+        self.remote_mode_btn.clicked.connect(self.toggle_remote_dialog)
 
         self.movie_mode_btn = QPushButton("🎬 Auto")
         self.movie_mode_btn.setObjectName("MovieModeBtn")
         self.movie_mode_btn.setCheckable(True)
-        self.movie_mode_btn.setFixedSize(84, 24)
+        self.movie_mode_btn.setFixedSize(80, 24)
         self.movie_mode_btn.clicked.connect(self.toggle_movie_mode)
 
         self.close_btn = QPushButton("✕")
@@ -618,6 +681,7 @@ class NotchgentHUD(QWidget):
 
         self.header_layout.addWidget(self.status_dot)
         self.header_layout.addWidget(self.status_label, 1)
+        self.header_layout.addWidget(self.remote_mode_btn)
         self.header_layout.addWidget(self.movie_mode_btn)
         self.header_layout.addWidget(self.close_btn)
 
@@ -689,6 +753,20 @@ class NotchgentHUD(QWidget):
                 color: #ffffff;
                 font-size: 11px;
                 font-weight: 600;
+            }
+            #RemoteModeBtn {
+                background-color: rgba(255, 255, 255, 0.1);
+                color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0 4px;
+            }
+            #RemoteModeBtn:hover {
+                background-color: rgba(249, 115, 22, 0.25);
+                border-color: rgba(249, 115, 22, 0.5);
+                color: #ffffff;
             }
             #MovieModeBtn {
                 background-color: rgba(255, 255, 255, 0.1);
@@ -802,6 +880,10 @@ class NotchgentHUD(QWidget):
             self.move(new_pos)
             self.pinned_center_x = new_pos.x() + self.width() // 2
             self.pinned_y = new_pos.y()
+            if self.remote_dialog and self.remote_dialog.isVisible():
+                rx = new_pos.x() + (self.width() - self.remote_dialog.width()) // 2
+                ry = new_pos.y() + self.height() + 8
+                self.remote_dialog.move(rx, ry)
             event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -830,7 +912,7 @@ class NotchgentHUD(QWidget):
 
     def collapse(self):
         self.is_expanded = False
-        target_w, target_h = 390, 48
+        target_w, target_h = 470, 48
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
@@ -854,7 +936,7 @@ class NotchgentHUD(QWidget):
     def expand(self):
         self.is_expanded = True
         self.expanded_widget.show()
-        target_w, target_h = 540, 224
+        target_w, target_h = 580, 224
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
@@ -965,6 +1047,9 @@ class NotchgentHUD(QWidget):
 
         self.details_box.setPlainText(details)
 
+        # Broadcast state to remote mobile clients
+        self.remote_server.update_state("pending", action, workspace_display, self.auto_movie_active)
+
         # Subtle single beep once for this step (unless configured to 'none' or 'silent')
         if self.last_chime_step != step_idx:
             self.last_chime_step = step_idx
@@ -995,6 +1080,7 @@ class NotchgentHUD(QWidget):
             self.status_label.setText("🎬 Auto Active")
         else:
             self.status_label.setText("Notchgent • Idle")
+        self.remote_server.update_state("idle", None, "", self.auto_movie_active)
         self.collapse()
 
     def on_approve_clicked(self):
@@ -1062,6 +1148,7 @@ class NotchgentHUD(QWidget):
             else:
                 self.status_label.setText("VS Code not found")
             self.status_dot.setStyleSheet("color: #f59e0b;")
+        self.remote_server.update_state("idle", None, "", self.auto_movie_active)
         QTimer.singleShot(1800, self._restore_idle_label)
 
     def _watchdog_check(self):
@@ -1107,6 +1194,13 @@ class NotchgentHUD(QWidget):
             self.movie_mode_btn.setText("🎬 Auto")
             self.status_label.setText("Notchgent • Idle")
             self.status_dot.setStyleSheet("color: #10b981;")
+
+        self.remote_server.update_state(
+            self.remote_server._state.get("status", "idle"),
+            self.remote_server._state.get("action"),
+            self.remote_server._state.get("workspace", ""),
+            self.auto_movie_active
+        )
 
     def _on_pulse_tick(self):
         if not self.auto_movie_active:
@@ -1187,6 +1281,121 @@ class NotchgentHUD(QWidget):
             self.listener.start()
         except Exception:
             pass
+
+    def toggle_remote_dialog(self):
+        if self.remote_dialog and self.remote_dialog.isVisible():
+            self.remote_dialog.hide()
+            return
+
+        if not self.remote_dialog:
+            self.remote_dialog = RemoteDialog()
+            self.remote_dialog.rotate_requested.connect(self._on_rotate_remote_key)
+
+        pub_url = ""
+        if self.tunnel_manager.public_url:
+            pub_url = f"{self.tunnel_manager.public_url}/#token={self.remote_server.token}"
+        local_url = f"http://{self.tunnel_manager.local_ip}:{self.remote_server.port}/#token={self.remote_server.token}"
+
+        self.remote_dialog.set_tunnel_url(pub_url, local_url)
+        self.remote_dialog.update_connection_count(self.remote_server.connected_devices_count)
+
+        x = self.x() + (self.width() - self.remote_dialog.width()) // 2
+        y = self.y() + self.height() + 8
+        self.remote_dialog.move(x, y)
+        self.remote_dialog.show()
+        self.remote_dialog.raise_()
+
+    def _on_rotate_remote_key(self):
+        new_token = self.remote_server.rotate_token()
+        pub_url = ""
+        if self.tunnel_manager.public_url:
+            pub_url = f"{self.tunnel_manager.public_url}/#token={new_token}"
+        local_url = f"http://{self.tunnel_manager.local_ip}:{self.remote_server.port}/#token={new_token}"
+        if self.remote_dialog:
+            self.remote_dialog.set_tunnel_url(pub_url, local_url)
+
+    def _on_tunnel_url_discovered(self, url: str):
+        full_url = f"{url}/#token={self.remote_server.token}"
+        local_url = f"http://{self.tunnel_manager.local_ip}:{self.remote_server.port}/#token={self.remote_server.token}"
+        if self.remote_dialog:
+            self.remote_dialog.set_tunnel_url(full_url, local_url)
+        self.remote_mode_btn.setStyleSheet("""
+            #RemoteModeBtn {
+                background-color: rgba(16, 185, 129, 0.22);
+                border: 1px solid rgba(16, 185, 129, 0.5);
+                color: #34d399;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0 4px;
+            }
+        """)
+
+    def _on_tunnel_status_changed(self, status: str):
+        if self.remote_dialog:
+            if status == "Connected":
+                self.remote_dialog.status_pill.setText("🟢 Secure Tunnel Active")
+            elif status.startswith("Error") or status == "Offline":
+                self.remote_dialog.status_pill.setText(f"🟡 {status}")
+
+    def _sync_remote_devices(self):
+        count = self.remote_server.connected_devices_count
+        if self.remote_dialog and self.remote_dialog.isVisible():
+            self.remote_dialog.update_connection_count(count)
+        if count > 0:
+            self.remote_mode_btn.setText(f"📱 {count} Online")
+            self.remote_mode_btn.setStyleSheet("""
+                #RemoteModeBtn {
+                    background-color: rgba(16, 185, 129, 0.25);
+                    border: 1px solid rgba(16, 185, 129, 0.6);
+                    color: #34d399;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 0 4px;
+                }
+            """)
+        elif self.tunnel_manager.public_url:
+            self.remote_mode_btn.setText("📱 Remote")
+            self.remote_mode_btn.setStyleSheet("""
+                #RemoteModeBtn {
+                    background-color: rgba(16, 185, 129, 0.18);
+                    border: 1px solid rgba(16, 185, 129, 0.4);
+                    color: #34d399;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 0 4px;
+                }
+            """)
+        else:
+            self.remote_mode_btn.setText("📱 Remote")
+
+    def _handle_remote_action(self, key_str: str):
+        if key_str == "1":
+            self.on_approve_clicked()
+        elif key_str == "2":
+            self.on_deny_clicked()
+
+    def _handle_remote_toggle_auto(self):
+        self.movie_mode_btn.setChecked(not self.movie_mode_btn.isChecked())
+        self.toggle_movie_mode()
+
+    def closeEvent(self, event):
+        set_keep_awake(False)
+        if hasattr(self, "listener") and self.listener:
+            try:
+                self.listener.stop()
+            except Exception:
+                pass
+        if self.remote_dialog:
+            try:
+                self.remote_dialog.close()
+            except Exception:
+                pass
+        self.tunnel_manager.stop()
+        self.remote_server.stop()
+        super().closeEvent(event)
 
 
 def main():

@@ -31,6 +31,7 @@
 - **True Screen Notch Geometry**: Anchored flush to the top bezel of your monitor (`y = 0`) with sharp top corners (`0px`) and smooth 20px rounded bottom corners for an authentic hardware-notch aesthetic.
 - **Apple Dynamic Island Spring Physics**: Features organic fluid spring animations powered by `QPropertyAnimation` (`OutBack` easing curve with spring bounce on expand, `OutCubic` on collapse).
 - **Signature Orange Border & Auto Pulsation**: Framed by a vibrant 1.5px orange border stroke (`#f97316`) that smoothly breathes with an organic 25fps pulsation when **Auto Mode** is engaged.
+- **Mobile Remote Approvals (Anywhere in the World)**: Step away from your desk or leave your PC running at home. Click `[ 📱 Remote ]`, scan the QR code with your iPhone or Android camera, and review/approve pending commands over 5G/4G or local Wi-Fi. Features Web Audio chimes, haptic feedback, live syntax boxes, and single-click token rotation.
 - **Zero Video Interruption**: Approving an action briefly shifts focus in the background for ~15ms via native Win32 `keybd_event`, then **instantly pins your fullscreen movie player back on top**. VS Code never pops up or covers your movie.
 - **Dynamic Multi-Workspace Routing**: If you have multiple VS Code windows open across different projects (e.g. `TTS`, `FFTL-light-astro-theme`, `notchgent`), Notchgent inspects the pending tool call's working directory (`Cwd`), target file, and active `agy.exe` environment to **dynamically target the exact VS Code window where that agent is running**.
 - **Workspace Identifier**: The island header displays the active workspace name (e.g. `Approval Needed • TTS`), so you always know which project needs your input.
@@ -84,6 +85,7 @@ flowchart TD
 | **Approve Action** | Click `[ ✓ 1. Approve (Alt+1) ]` | <kbd>Alt</kbd>+<kbd>1</kbd>, <kbd>Alt</kbd>+<kbd>A</kbd>, <kbd>F8</kbd> |
 | **Reject Action** | Click `[ ✕ 2 (Alt+2) ]` | <kbd>Alt</kbd>+<kbd>2</kbd>, <kbd>Alt</kbd>+<kbd>D</kbd>, <kbd>F9</kbd> |
 | **Toggle Auto Mode** | Click `[ 🎬 Auto ]` / `[ 🎬 14:59 ]` | Click button on capsule |
+| **Mobile Remote QR** | Click `[ 📱 Remote ]` | Scan QR code on phone camera |
 | **Move Notch** | Click and drag the capsule | Mouse drag |
 | **Close HUD** | Click `[ ✕ ]` | Click button on capsule |
 
@@ -156,7 +158,11 @@ notchgent/
 ├── dist/
 │   └── Notchgent.exe   # Compiled standalone release binary (zero dependencies)
 ├── assets/             # Visual showcase assets, screenshots, and diagrams
+├── bin/                # Local runtime binaries (cloudflared.exe tunnel)
 ├── notchgent.py        # Main application: PyQt6 HUD, Win32 window manager & transcript watcher
+├── remote_server.py    # Embedded HTTP, SSE & mobile Dynamic Island Web PWA
+├── tunnel_manager.py   # Cloudflare Quick Tunnel & local LAN network manager
+├── remote_dialog.py    # QR code pairing modal & key rotation UI
 ├── make_icon.py        # High-res multi-resolution icon generator
 ├── app_icon.ico        # Application and taskbar icon (256x256 down to 16x16)
 ├── build.bat           # PyInstaller release build script
@@ -165,7 +171,8 @@ notchgent/
 ├── stop.bat            # Graceful termination script
 ├── .notchgent.pid      # Single-instance process ID tracking file
 ├── config.json         # User configuration settings (geometry, hotkeys, opacity)
-├── RELEASE.md          # GitHub release notes and version changelog
+├── CHANGELOG.md        # Full version history and detailed release changelogs
+├── RELEASE.md          # GitHub release notes
 └── README.md           # Project documentation
 ```
 
