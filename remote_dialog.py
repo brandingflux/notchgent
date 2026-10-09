@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-Remote Dialog / Modal for Notchgent.
-Displays the live QR code, connection status, token rotation, and copy buttons.
+Remote Dialog for Notchgent.
+Floating modal providing dynamic QR code pairing, connection management,
+and seamless switching between Public 5G (Cloudflare) and Home Wi-Fi (Direct LAN).
 """
 
 from io import BytesIO
 import qrcode
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QTimer
-from PyQt6.QtGui import QColor, QFont, QImage, QPixmap, QClipboard
+from PyQt6.QtGui import QImage, QPixmap, QColor, QFont
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QApplication
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QFrame, QApplication
 )
 
+from icons import get_svg_icon, get_svg_pixmap
 
-def generate_qr_pixmap(data: str, size: int = 220) -> QPixmap:
-    """Generate a crisp dark-mode styled QPixmap QR code."""
+
+def generate_qr_pixmap(data: str, size: int = 210) -> QPixmap:
+    """Generate high-contrast QR code as QPixmap."""
     try:
         qr = qrcode.QRCode(
             version=None,
@@ -33,13 +36,9 @@ def generate_qr_pixmap(data: str, size: int = 220) -> QPixmap:
         pixmap = QPixmap.fromImage(qimg)
         return pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     except Exception:
-        # Fallback empty pixmap
         pm = QPixmap(size, size)
         pm.fill(QColor("#1e222d"))
         return pm
-
-
-from icons import get_svg_icon, get_svg_pixmap
 
 
 class RemoteDialog(QWidget):
@@ -53,6 +52,7 @@ class RemoteDialog(QWidget):
         self.drag_pos = QPoint()
         self.current_url = ""
         self.current_local_url = ""
+        self.active_mode = "public"  # "public" or "lan"
         self.setup_ui()
 
     def setup_ui(self):
@@ -63,7 +63,7 @@ class RemoteDialog(QWidget):
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(360, 480)
+        self.setFixedSize(360, 520)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -73,7 +73,7 @@ class RemoteDialog(QWidget):
         self.frame.setObjectName("DialogCard")
         frame_layout = QVBoxLayout(self.frame)
         frame_layout.setContentsMargins(20, 16, 20, 18)
-        frame_layout.setSpacing(12)
+        frame_layout.setSpacing(10)
         frame_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Header row
@@ -102,10 +102,29 @@ class RemoteDialog(QWidget):
         frame_layout.addLayout(hdr_layout)
 
         # Subtitle
-        sub = QLabel("Scan with your phone camera to review and approve actions from anywhere.")
+        sub = QLabel("Scan with your phone to review & approve commands on the go.")
         sub.setObjectName("DialogSubtitle")
         sub.setWordWrap(True)
         frame_layout.addWidget(sub)
+
+        # Network Mode Switcher Tabs
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(0, 2, 0, 4)
+        mode_layout.setSpacing(8)
+
+        self.mode_public_btn = QPushButton(" Public (5G / Remote)")
+        self.mode_public_btn.setIcon(get_svg_icon("globe", "#ffffff", 12))
+        self.mode_public_btn.setFixedHeight(28)
+        self.mode_public_btn.clicked.connect(lambda: self.set_mode("public"))
+
+        self.mode_lan_btn = QPushButton(" Home Wi-Fi (LAN)")
+        self.mode_lan_btn.setIcon(get_svg_icon("wifi", "#9ca3af", 12))
+        self.mode_lan_btn.setFixedHeight(28)
+        self.mode_lan_btn.clicked.connect(lambda: self.set_mode("lan"))
+
+        mode_layout.addWidget(self.mode_public_btn, 1)
+        mode_layout.addWidget(self.mode_lan_btn, 1)
+        frame_layout.addLayout(mode_layout)
 
         # QR Frame Container
         qr_container = QFrame()
@@ -115,7 +134,7 @@ class RemoteDialog(QWidget):
         qr_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.qr_label = QLabel()
-        self.qr_label.setFixedSize(220, 220)
+        self.qr_label.setFixedSize(210, 210)
         self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.qr_label.setText("Starting secure tunnel...")
         self.qr_label.setObjectName("QRLabel")
@@ -132,37 +151,27 @@ class RemoteDialog(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
-        self.copy_btn = QPushButton("Copy Link")
+        self.copy_btn = QPushButton(" Copy Link")
         self.copy_btn.setObjectName("ActionBtn")
         self.copy_btn.setIcon(get_svg_icon("copy", "#fb923c", 13))
-        self.copy_btn.setFixedHeight(30)
+        self.copy_btn.setFixedHeight(32)
         self.copy_btn.clicked.connect(self.copy_link)
 
-        self.rotate_btn = QPushButton("Rotate Key")
+        self.rotate_btn = QPushButton(" Rotate & Refresh")
         self.rotate_btn.setObjectName("ActionBtnSecondary")
         self.rotate_btn.setIcon(get_svg_icon("rotate", "#d1d5db", 13))
-        self.rotate_btn.setFixedHeight(30)
+        self.rotate_btn.setFixedHeight(32)
         self.rotate_btn.clicked.connect(self._on_rotate_clicked)
 
         btn_layout.addWidget(self.copy_btn, 1)
         btn_layout.addWidget(self.rotate_btn, 1)
         frame_layout.addLayout(btn_layout)
 
-        # Local LAN row
-        lan_layout = QHBoxLayout()
-        lan_layout.setContentsMargins(0, 0, 0, 0)
-        lan_layout.setSpacing(5)
-        lan_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.lan_icon = QLabel()
-        self.lan_icon.setPixmap(get_svg_pixmap("wifi", "#6b7280", 12))
-
-        self.lan_label = QLabel("Home Wi-Fi: Ready")
-        self.lan_label.setObjectName("LanLabel")
-
-        lan_layout.addWidget(self.lan_icon)
-        lan_layout.addWidget(self.lan_label)
-        frame_layout.addLayout(lan_layout)
+        # Helper note
+        self.hint_label = QLabel("Tip: Home Wi-Fi never expires. Use Public for 5G cellular.")
+        self.hint_label.setObjectName("HintLabel")
+        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        frame_layout.addWidget(self.hint_label)
 
         layout.addWidget(self.frame)
 
@@ -182,7 +191,7 @@ class RemoteDialog(QWidget):
             #DialogSubtitle {
                 color: #9ca3af;
                 font-size: 11px;
-                line-height: 1.4;
+                line-height: 1.3;
             }
             #DialogCloseBtn {
                 background: transparent;
@@ -238,43 +247,110 @@ class RemoteDialog(QWidget):
                 background: rgba(255, 255, 255, 0.15);
                 color: #ffffff;
             }
-            #LanLabel {
+            #HintLabel {
                 color: #6b7280;
                 font-size: 10px;
             }
         """)
 
-    def set_tunnel_url(self, public_url: str, local_url: str):
-        """Update displayed QR code and links."""
-        self.current_url = public_url
-        self.current_local_url = local_url
+        self._update_mode_buttons()
 
-        if public_url:
-            pix = generate_qr_pixmap(public_url, size=210)
-            self.qr_label.setPixmap(pix)
-            self.status_pill.setText("Secure Tunnel Active")
-            self.status_pill.setStyleSheet("""
-                background-color: rgba(16, 185, 129, 0.14);
-                color: #34d399;
-                border: 1px solid rgba(16, 185, 129, 0.3);
-                border-radius: 10px;
+    def _update_mode_buttons(self):
+        if self.active_mode == "public":
+            self.mode_public_btn.setStyleSheet("""
+                background-color: rgba(249, 115, 22, 0.25);
+                border: 1px solid rgba(249, 115, 22, 0.7);
+                color: #fb923c;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 600;
+            """)
+            self.mode_lan_btn.setStyleSheet("""
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: #9ca3af;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 500;
             """)
         else:
-            self.qr_label.clear()
-            self.qr_label.setText("Generating tunnel...")
-            self.status_pill.setText("Connecting...")
+            self.mode_lan_btn.setStyleSheet("""
+                background-color: rgba(16, 185, 129, 0.22);
+                border: 1px solid rgba(16, 185, 129, 0.6);
+                color: #34d399;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 600;
+            """)
+            self.mode_public_btn.setStyleSheet("""
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: #9ca3af;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 500;
+            """)
 
-        if local_url:
-            self.lan_label.setText(f"Home Wi-Fi: {local_url.split('/#')[0]}")
+    def set_mode(self, mode: str):
+        """Switch between 'public' (Cloudflare 5G) and 'lan' (Local Wi-Fi)."""
+        self.active_mode = mode
+        self._update_mode_buttons()
+        self._render_active_qr()
+
+    def set_tunnel_url(self, public_url: str, local_url: str):
+        """Update displayed URLs and re-render."""
+        self.current_url = public_url
+        self.current_local_url = local_url
+        self._render_active_qr()
+
+    def _render_active_qr(self):
+        """Render QR code for currently selected mode."""
+        if self.active_mode == "public":
+            if self.current_url:
+                pix = generate_qr_pixmap(self.current_url, size=210)
+                self.qr_label.setPixmap(pix)
+                self.status_pill.setText("Secure Tunnel Active")
+                self.status_pill.setStyleSheet("""
+                    background-color: rgba(16, 185, 129, 0.14);
+                    color: #34d399;
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    border-radius: 10px;
+                """)
+            else:
+                self.qr_label.clear()
+                self.qr_label.setText("Connecting to Cloudflare...")
+                self.status_pill.setText("Reconnecting tunnel...")
+                self.status_pill.setStyleSheet("""
+                    background-color: rgba(245, 158, 11, 0.14);
+                    color: #fbbf24;
+                    border: 1px solid rgba(245, 158, 11, 0.3);
+                    border-radius: 10px;
+                """)
+        else:
+            if self.current_local_url:
+                pix = generate_qr_pixmap(self.current_local_url, size=210)
+                self.qr_label.setPixmap(pix)
+                self.status_pill.setText("Home Wi-Fi • Direct LAN (Zero Lag)")
+                self.status_pill.setStyleSheet("""
+                    background-color: rgba(16, 185, 129, 0.14);
+                    color: #34d399;
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    border-radius: 10px;
+                """)
+            else:
+                self.qr_label.clear()
+                self.qr_label.setText("Detecting Local Wi-Fi...")
 
     def update_connection_count(self, count: int):
         if count > 0:
             self.status_pill.setText(f"{count} Phone{'s' if count > 1 else ''} Connected")
-        elif self.current_url:
+        elif self.active_mode == "public" and self.current_url:
             self.status_pill.setText("Ready for Phone Pairing")
 
     def copy_link(self):
-        url = self.current_url or self.current_local_url
+        url = self.current_url if self.active_mode == "public" else self.current_local_url
+        if not url:
+            url = self.current_local_url or self.current_url
         if url:
             cb = QApplication.clipboard()
             cb.setText(url)
@@ -288,12 +364,22 @@ class RemoteDialog(QWidget):
 
     def _on_rotate_clicked(self):
         self.rotate_requested.emit()
-        self.rotate_btn.setText(" Rotated")
+        self.rotate_btn.setText(" Refreshed!")
         self.rotate_btn.setIcon(get_svg_icon("check", "#34d399", 13))
+        if self.active_mode == "public":
+            self.status_pill.setText("Reconnecting tunnel...")
+            self.status_pill.setStyleSheet("""
+                background-color: rgba(245, 158, 11, 0.14);
+                color: #fbbf24;
+                border: 1px solid rgba(245, 158, 11, 0.3);
+                border-radius: 10px;
+            """)
+            self.qr_label.clear()
+            self.qr_label.setText("Refreshing tunnel...")
         QTimer.singleShot(1500, self._restore_rotate_btn)
 
     def _restore_rotate_btn(self):
-        self.rotate_btn.setText(" Rotate Key")
+        self.rotate_btn.setText(" Rotate & Refresh")
         self.rotate_btn.setIcon(get_svg_icon("rotate", "#d1d5db", 13))
 
     def mousePressEvent(self, event):

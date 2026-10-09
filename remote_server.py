@@ -784,6 +784,11 @@ class RemoteServer:
                     self.wfile.write(body)
                     return
 
+                # Health & Heartbeat API (used by TunnelManager watchdog)
+                if path in ("/api/health", "/api/ping"):
+                    self.send_json({"ok": True, "time": time.time(), "devices": server_self.connected_devices_count})
+                    return
+
                 # Status API
                 if path == "/api/status":
                     if not self.check_auth():
@@ -793,6 +798,7 @@ class RemoteServer:
                         data = dict(server_self._state)
                     self.send_json(data)
                     return
+
 
                 # SSE Stream
                 if path == "/api/events":

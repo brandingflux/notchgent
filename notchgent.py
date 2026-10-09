@@ -1331,10 +1331,14 @@ class NotchgentHUD(QWidget):
             self.remote_dialog = RemoteDialog()
             self.remote_dialog.rotate_requested.connect(self._on_rotate_remote_key)
 
+        if not self.tunnel_manager.is_connected and not self.tunnel_manager.public_url:
+            self.tunnel_manager.restart()
+
         pub_url = ""
         if self.tunnel_manager.public_url:
             pub_url = f"{self.tunnel_manager.public_url}/#token={self.remote_server.token}"
         local_url = f"http://{self.tunnel_manager.local_ip}:{self.remote_server.port}/#token={self.remote_server.token}"
+
 
         self.remote_dialog.set_tunnel_url(pub_url, local_url)
         self.remote_dialog.update_connection_count(self.remote_server.connected_devices_count)
@@ -1347,12 +1351,11 @@ class NotchgentHUD(QWidget):
 
     def _on_rotate_remote_key(self):
         new_token = self.remote_server.rotate_token()
-        pub_url = ""
-        if self.tunnel_manager.public_url:
-            pub_url = f"{self.tunnel_manager.public_url}/#token={new_token}"
+        # Force a fresh Cloudflare tunnel provision so a stale link is immediately repaired!
+        self.tunnel_manager.restart()
         local_url = f"http://{self.tunnel_manager.local_ip}:{self.remote_server.port}/#token={new_token}"
         if self.remote_dialog:
-            self.remote_dialog.set_tunnel_url(pub_url, local_url)
+            self.remote_dialog.set_tunnel_url("", local_url)
 
     def _on_tunnel_url_discovered(self, url: str):
         full_url = f"{url}/#token={self.remote_server.token}"
@@ -1376,8 +1379,23 @@ class NotchgentHUD(QWidget):
         if self.remote_dialog:
             if status == "Connected":
                 self.remote_dialog.status_pill.setText("Secure Tunnel Active")
+                self.remote_dialog.status_pill.setStyleSheet("""
+                    background-color: rgba(16, 185, 129, 0.14);
+                    color: #34d399;
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    border-radius: 10px;
+                """)
+            elif "reconnect" in status.lower() or "refresh" in status.lower():
+                self.remote_dialog.status_pill.setText("Reconnecting tunnel...")
+                self.remote_dialog.status_pill.setStyleSheet("""
+                    background-color: rgba(245, 158, 11, 0.14);
+                    color: #fbbf24;
+                    border: 1px solid rgba(245, 158, 11, 0.3);
+                    border-radius: 10px;
+                """)
             elif status.startswith("Error") or status == "Offline":
                 self.remote_dialog.status_pill.setText(status)
+
 
     def _sync_remote_devices(self):
         count = self.remote_server.connected_devices_count

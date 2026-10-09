@@ -15,5 +15,8 @@
     "expanded_width": 560,
     "expanded_height": 260
   },
-  "auto_approve_timeout_seconds": 0
+  "auto_approve_timeout_seconds": 0,
+  "tunnel_token": "",
+  "tunnel_url": ""
 }
+

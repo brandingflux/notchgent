@@ -19,9 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Optimistic UI Feedback**: Instant checkmark transition on phone upon approval tap with step deduplication to guarantee buttons never stick or hang.
   - **Windows Power Management (`SetThreadExecutionState`)**: Keeps Windows in an active execution state while remote mode is active, allowing displays to sleep while preventing PC suspension during autonomous coding tasks.
 - **Pixel-Crisp Vector SVG Icon Engine (`icons.py`)**:
-  - Replaced all system emojis across the entire application with dedicated vector SVG icons (`phone`, `clapperboard`, `terminal`, `file_edit`, `file_plus`, `help_circle`, `check`, `x`, `copy`, `rotate`, `wifi`, `zap`, `shield_check`).
+  - Replaced all system emojis across the entire application with dedicated vector SVG icons (`phone`, `clapperboard`, `terminal`, `file_edit`, `file_plus`, `help_circle`, `check`, `x`, `copy`, `rotate`, `wifi`, `zap`, `shield_check`, `globe`).
   - Resolution-independent rendering rendered at 2x High-DPI scale for sharp lines on 4K/retina monitors and mobile OLED screens.
   - Inline vector SVG injection in the mobile PWA with zero external asset dependencies.
+- **Self-Healing Tunnel Supervisor & Edge Watchdog (`tunnel_manager.py`)**:
+  - Replaced one-shot process execution with a continuous background supervisor loop that prevents tunnels from dying after prolonged hours of operation.
+  - Added an active edge heartbeat probe every 30 seconds that detects silent Cloudflare edge drops or DNS expirations and automatically re-provisions a fresh tunnel.
+  - Added dedicated `restart()` trigger wired directly to the modal's "Rotate & Refresh" button for instant on-demand link regeneration.
+  - Added support for permanent named Cloudflare Tunnels via `config.json` (`tunnel_token`, `tunnel_url`).
+- **Dual-Mode Network Switcher (`remote_dialog.py`)**:
+  - Added segmented switcher tabs between **Public (5G / Remote)** and **Home Wi-Fi (Direct LAN)**.
+  - Users on home Wi-Fi can now connect directly with 0ms cloud lag, zero Cloudflare dependencies, and infinite uptime.
+
 
 ### 🛠️ Changed
 - **HUD Interface**: Replaced unicode emojis on header buttons (`Remote`, `Auto`, `Close`), action buttons (`Approve`, `Reject`), and tool badge headers (`Shell Command`, `Edit File`, `Create File`, `Question`) with vector SVG icons.
