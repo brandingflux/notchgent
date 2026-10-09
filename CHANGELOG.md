@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dual-Mode Network Switcher (`remote_dialog.py`)**:
   - Added segmented switcher tabs between **Public (5G / Remote)** and **Home Wi-Fi (Direct LAN)**.
   - Users on home Wi-Fi can now connect directly with 0ms cloud lag, zero Cloudflare dependencies, and infinite uptime.
+- **Dedicated Mute Button & Silent Film Mode**:
+  - Added a dedicated **Mute Button** on both the Desktop HUD header and Mobile Remote Web App to silence the alert chime/beep when watching films or working in quiet environments.
+  - Added universal global hotkey <kbd>Alt</kbd>+<kbd>M</kbd> to instantaneously toggle mute without losing media player focus.
+  - Automatic cross-device synchronization: Muting on desktop instantly syncs to all connected mobile phones, and muting on mobile syncs back to desktop.
+  - Audio preference persistence: Automatically saves to `config.json` (`"sound": "silent"` / `"sound": "beep"`) across restarts.
 
 
 ### 🛠️ Changed

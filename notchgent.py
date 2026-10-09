@@ -549,6 +549,7 @@ class NotchgentHUD(QWidget):
     key_sent_signal = pyqtSignal(bool, str)
     remote_action_signal = pyqtSignal(str)
     remote_toggle_auto_signal = pyqtSignal()
+    remote_toggle_mute_signal = pyqtSignal()
     tunnel_url_signal = pyqtSignal(str)
     tunnel_status_signal = pyqtSignal(str)
 
@@ -557,6 +558,7 @@ class NotchgentHUD(QWidget):
         self.key_sent_signal.connect(self._on_key_sent)
         self.remote_action_signal.connect(self._handle_remote_action)
         self.remote_toggle_auto_signal.connect(self._handle_remote_toggle_auto)
+        self.remote_toggle_mute_signal.connect(self._handle_remote_toggle_mute)
         self.tunnel_url_signal.connect(self._on_tunnel_url_discovered)
         self.tunnel_status_signal.connect(self._on_tunnel_status_changed)
 
@@ -592,6 +594,8 @@ class NotchgentHUD(QWidget):
             except Exception:
                 pass
 
+        self.is_muted = self.sound_mode in ("none", "silent", "off", "false", "0")
+
         self.is_sending_keys = False
         self._auto_timer: Optional[QTimer] = None
         release_all_modifiers()
@@ -600,7 +604,9 @@ class NotchgentHUD(QWidget):
         self.remote_server = RemoteServer(
             port=remote_port,
             on_action_callback=lambda k: self.remote_action_signal.emit(k) or True,
-            on_toggle_auto_callback=lambda: self.remote_toggle_auto_signal.emit() or self.auto_movie_active
+            on_toggle_auto_callback=lambda: self.remote_toggle_auto_signal.emit() or self.auto_movie_active,
+            on_toggle_mute_callback=lambda: self.remote_toggle_mute_signal.emit() or self.is_muted,
+            is_muted=self.is_muted
         )
         self.remote_server.start()
 
@@ -681,6 +687,12 @@ class NotchgentHUD(QWidget):
         self.movie_mode_btn.setFixedSize(80, 24)
         self.movie_mode_btn.clicked.connect(self.toggle_movie_mode)
 
+        self.mute_btn = QPushButton()
+        self.mute_btn.setObjectName("MuteBtn")
+        self.mute_btn.setFixedSize(28, 24)
+        self.mute_btn.clicked.connect(self.toggle_mute)
+        self._update_mute_ui()
+
         self.close_btn = QPushButton()
         self.close_btn.setObjectName("CloseBtn")
         self.close_btn.setIcon(get_svg_icon("x", "#9ca3af", 11))
@@ -692,6 +704,7 @@ class NotchgentHUD(QWidget):
         self.header_layout.addWidget(self.status_label, 1)
         self.header_layout.addWidget(self.remote_mode_btn)
         self.header_layout.addWidget(self.movie_mode_btn)
+        self.header_layout.addWidget(self.mute_btn)
         self.header_layout.addWidget(self.close_btn)
 
         self.frame_layout.addWidget(self.header_widget)
@@ -817,6 +830,16 @@ class NotchgentHUD(QWidget):
                 background-color: #ea580c;
                 color: #ffffff;
                 border: 1px solid #fb923c;
+            }
+            #MuteBtn {
+                background-color: rgba(255, 255, 255, 0.1);
+                color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 12px;
+                padding: 0;
+            }
+            #MuteBtn:hover {
+                background-color: rgba(255, 255, 255, 0.2);
             }
             #CloseBtn {
                 background: transparent;
@@ -946,7 +969,7 @@ class NotchgentHUD(QWidget):
 
     def collapse(self):
         self.is_expanded = False
-        target_w, target_h = 470, 48
+        target_w, target_h = 495, 48
         if self.pinned_center_x is None:
             screen = QApplication.primaryScreen().geometry()
             self.pinned_center_x = screen.width() // 2
@@ -1085,12 +1108,12 @@ class NotchgentHUD(QWidget):
         self.details_box.setPlainText(details)
 
         # Broadcast state to remote mobile clients
-        self.remote_server.update_state("pending", action, workspace_display, self.auto_movie_active)
+        self.remote_server.update_state("pending", action, workspace_display, self.auto_movie_active, is_muted=self.is_muted)
 
-        # Subtle single beep once for this step (unless configured to 'none' or 'silent')
+        # Subtle single beep once for this step (unless muted or configured to 'none'/'silent')
         if self.last_chime_step != step_idx:
             self.last_chime_step = step_idx
-            if self.sound_mode not in ("none", "silent", "off", "false", "0"):
+            if not self.is_muted and self.sound_mode not in ("none", "silent", "off", "false", "0"):
                 def _play_subtle_beep():
                     try:
                         import winsound
@@ -1117,7 +1140,7 @@ class NotchgentHUD(QWidget):
             self.status_label.setText("Auto Active")
         else:
             self.status_label.setText("Notchgent • Idle")
-        self.remote_server.update_state("idle", None, "", self.auto_movie_active)
+        self.remote_server.update_state("idle", None, "", self.auto_movie_active, is_muted=self.is_muted)
         self.collapse()
 
     def on_approve_clicked(self):
@@ -1239,8 +1262,68 @@ class NotchgentHUD(QWidget):
             self.remote_server._state.get("status", "idle"),
             self.remote_server._state.get("action"),
             self.remote_server._state.get("workspace", ""),
-            self.auto_movie_active
+            self.auto_movie_active,
+            is_muted=self.is_muted
         )
+
+    def toggle_mute(self):
+        self.is_muted = not self.is_muted
+        self.sound_mode = "silent" if self.is_muted else "beep"
+        self._update_mute_ui()
+        self._save_sound_preference()
+        self.remote_server.update_state(
+            self.remote_server._state.get("status", "idle"),
+            self.remote_server._state.get("action"),
+            self.remote_server._state.get("workspace", ""),
+            self.auto_movie_active,
+            is_muted=self.is_muted
+        )
+        return self.is_muted
+
+    def _update_mute_ui(self):
+        if not hasattr(self, "mute_btn"):
+            return
+        if self.is_muted:
+            self.mute_btn.setIcon(get_svg_icon("volume_x", "#ef4444", 13))
+            self.mute_btn.setToolTip("Unmute Sound / Beep (Alt+M)")
+            self.mute_btn.setStyleSheet("""
+                #MuteBtn {
+                    background-color: rgba(239, 68, 68, 0.22);
+                    border: 1px solid rgba(239, 68, 68, 0.55);
+                    border-radius: 12px;
+                    padding: 0;
+                }
+                #MuteBtn:hover {
+                    background-color: rgba(239, 68, 68, 0.35);
+                }
+            """)
+        else:
+            self.mute_btn.setIcon(get_svg_icon("volume_2", "#ffffff", 13))
+            self.mute_btn.setToolTip("Mute Sound / Beep (Alt+M)")
+            self.mute_btn.setStyleSheet("""
+                #MuteBtn {
+                    background-color: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    border-radius: 12px;
+                    padding: 0;
+                }
+                #MuteBtn:hover {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+            """)
+
+    def _save_sound_preference(self):
+        config_path = os.path.join(SCRIPT_DIR, "config.json")
+        try:
+            cfg = {}
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            cfg["sound"] = "silent" if self.is_muted else "beep"
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
 
     def _on_pulse_tick(self):
         if not self.auto_movie_active:
@@ -1307,6 +1390,10 @@ class NotchgentHUD(QWidget):
             release_all_modifiers()
             QTimer.singleShot(60, self.on_deny_clicked)
 
+        def on_mute():
+            release_all_modifiers()
+            QTimer.singleShot(0, self.toggle_mute)
+
         try:
             hotkeys = {
                 "<alt>+1": on_1,
@@ -1314,7 +1401,8 @@ class NotchgentHUD(QWidget):
                 "<f8>": on_1,
                 "<alt>+2": on_2,
                 "<alt>+d": on_2,
-                "<f9>": on_2
+                "<f9>": on_2,
+                "<alt>+m": on_mute
             }
             self.listener = keyboard.GlobalHotKeys(hotkeys)
             self.listener.daemon = True
@@ -1443,6 +1531,9 @@ class NotchgentHUD(QWidget):
     def _handle_remote_toggle_auto(self):
         self.movie_mode_btn.setChecked(not self.movie_mode_btn.isChecked())
         self.toggle_movie_mode()
+
+    def _handle_remote_toggle_mute(self):
+        self.toggle_mute()
 
     def closeEvent(self, event):
         set_keep_awake(False)

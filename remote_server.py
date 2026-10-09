@@ -123,6 +123,29 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
       color: #ffffff;
       box-shadow: 0 0 10px rgba(234, 88, 12, 0.4);
     }
+    .mute-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #9ca3af;
+      border-radius: 14px;
+      padding: 5px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .mute-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: #ffffff;
+    }
+    .mute-btn.muted {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #f87171;
+    }
+
 
     /* Main Container */
     .main-card {
@@ -326,10 +349,15 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="status-subtitle" id="statusSubtitle">PC Connected at Home</div>
       </div>
     </div>
-    <button class="auto-btn" id="autoBtn" onclick="toggleAutoMode()">
-      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4z"/><path d="m4 11 3-6h4l-3 6"/><path d="m11 5 3 6"/><path d="m14 5 3 6"/><path d="m17 5 3 6"/><path d="M2 11h20"/></svg>
-      <span id="autoBtnText">Auto</span>
-    </button>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <button class="mute-btn" id="muteBtn" onclick="toggleMute()" title="Mute sound chime">
+        <span id="muteIcon" style="display:flex;align-items:center;"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></span>
+      </button>
+      <button class="auto-btn" id="autoBtn" onclick="toggleAutoMode()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4z"/><path d="m4 11 3-6h4l-3 6"/><path d="m11 5 3 6"/><path d="m14 5 3 6"/><path d="m17 5 3 6"/><path d="M2 11h20"/></svg>
+        <span id="autoBtnText">Auto</span>
+      </button>
+    </div>
   </div>
 
   <!-- Main Card -->
@@ -404,12 +432,58 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     let isAutoActive = false;
+    let isMuted = false;
     let currentStep = -1;
     let lastDispatchedStep = -1;
     let isSubmitting = false;
 
+    const SVGS = {
+      terminal: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+      file_edit: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+      file_plus: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+      help_circle: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+      zap: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+      volume_2: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>',
+      volume_x: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>'
+    };
+
+    function updateMuteUI(muted) {
+      isMuted = !!muted;
+      const muteBtn = document.getElementById('muteBtn');
+      const muteIcon = document.getElementById('muteIcon');
+      if (!muteBtn || !muteIcon) return;
+      if (isMuted) {
+        muteBtn.classList.add('muted');
+        muteBtn.title = 'Unmute Sound / Chime';
+        muteIcon.innerHTML = SVGS.volume_x;
+      } else {
+        muteBtn.classList.remove('muted');
+        muteBtn.title = 'Mute Sound / Chime';
+        muteIcon.innerHTML = SVGS.volume_2;
+      }
+    }
+
+    async function toggleMute() {
+      triggerHaptic([30]);
+      try {
+        const res = await fetch('/api/toggle_mute', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          }
+        });
+        const data = await res.json();
+        updateMuteUI(data.muted);
+        showFeedback(data.muted ? 'Sound Muted' : 'Sound Enabled', 'info', 1500);
+      } catch (e) {
+        updateMuteUI(!isMuted);
+      }
+    }
+
     // Web Audio alert chime
     function playChime() {
+      if (isMuted) return;
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = audioCtx.createOscillator();
@@ -448,6 +522,9 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
       const action = data.action;
       const workspace = data.workspace || '';
       isAutoActive = !!data.auto_active;
+      if (data.is_muted !== undefined) {
+        updateMuteUI(data.is_muted);
+      }
 
       // Update Auto button state
       const autoBtn = document.getElementById('autoBtn');
@@ -485,15 +562,6 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
 
         idleView.style.display = 'none';
         actionView.style.display = 'flex';
-
-        // Set tool badge with vector SVG icon
-        const SVGS = {
-          terminal: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
-          file_edit: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
-          file_plus: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
-          help_circle: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-          zap: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
-        };
 
         const toolConfigs = {
           'run_command': { svg: SVGS.terminal, name: 'Shell Command' },
@@ -660,18 +728,22 @@ class RemoteServer:
         self,
         port: int = 5151,
         on_action_callback: Optional[Callable[[str], bool]] = None,
-        on_toggle_auto_callback: Optional[Callable[[], bool]] = None
+        on_toggle_auto_callback: Optional[Callable[[], bool]] = None,
+        on_toggle_mute_callback: Optional[Callable[[], bool]] = None,
+        is_muted: bool = False
     ):
         self.port = port
         self.token = secrets.token_hex(16)
         self.on_action_callback = on_action_callback
         self.on_toggle_auto_callback = on_toggle_auto_callback
+        self.on_toggle_mute_callback = on_toggle_mute_callback
 
         self._state: Dict[str, Any] = {
             "status": "idle",
             "action": None,
             "workspace": "",
-            "auto_active": False
+            "auto_active": False,
+            "is_muted": is_muted
         }
         self._lock = threading.Lock()
         self._sse_clients: List[Any] = []
@@ -698,7 +770,8 @@ class RemoteServer:
         status: str,
         action: Optional[Dict[str, Any]] = None,
         workspace: str = "",
-        auto_active: Optional[bool] = None
+        auto_active: Optional[bool] = None,
+        is_muted: Optional[bool] = None
     ):
         """Update current agent approval state and broadcast to all connected phones."""
         with self._lock:
@@ -708,6 +781,8 @@ class RemoteServer:
                 self._state["workspace"] = workspace
             if auto_active is not None:
                 self._state["auto_active"] = auto_active
+            if is_muted is not None:
+                self._state["is_muted"] = is_muted
             payload = json.dumps(self._state)
 
         # Broadcast SSE message to all connected clients
@@ -889,6 +964,15 @@ class RemoteServer:
                     if server_self.on_toggle_auto_callback:
                         auto_val = server_self.on_toggle_auto_callback()
                     self.send_json({"ok": True, "auto_active": auto_val})
+                    return
+
+                if path == "/api/toggle_mute":
+                    muted_val = False
+                    if server_self.on_toggle_mute_callback:
+                        muted_val = server_self.on_toggle_mute_callback()
+                    with server_self._lock:
+                        server_self._state["is_muted"] = muted_val
+                    self.send_json({"ok": True, "muted": muted_val})
                     return
 
                 self.send_json({"error": "Not Found"}, 404)

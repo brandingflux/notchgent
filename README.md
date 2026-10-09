@@ -37,8 +37,9 @@
 - **Dynamic Multi-Workspace Routing**: If you have multiple VS Code windows open across different projects (e.g. `TTS`, `FFTL-light-astro-theme`, `notchgent`), Notchgent inspects the pending tool call's working directory (`Cwd`), target file, and active `agy.exe` environment to **dynamically target the exact VS Code window where that agent is running**.
 - **Workspace Identifier**: The island header displays the active workspace name (e.g. `Approval Needed • TTS`), so you always know which project needs your input.
 - **15-Minute Auto Mode**: Optional 15-minute countdown timer that auto-approves pending actions after a soft chime, allowing hands-free operation.
+- **Dedicated Mute Button & Silent Film Mode**: Built-in sound toggle on both desktop HUD and mobile remote app. Silence beeps and chimes completely during movies or late-night sessions with 1 click or instant <kbd>Alt</kbd>+<kbd>M</kbd> hotkey.
 - **Zero-Hook Architecture**: Runs against stock Antigravity CLI without modifying `hooks.json` or intercepting terminal streams. It observes live JSONL transcripts directly.
-- **Universal Global Hotkeys**: Approve with <kbd>Alt</kbd>+<kbd>1</kbd>, <kbd>Alt</kbd>+<kbd>A</kbd>, or <kbd>F8</kbd>. Reject with <kbd>Alt</kbd>+<kbd>2</kbd>, <kbd>Alt</kbd>+<kbd>D</kbd>, or <kbd>F9</kbd>.
+- **Universal Global Hotkeys**: Approve with <kbd>Alt</kbd>+<kbd>1</kbd> / <kbd>Alt</kbd>+<kbd>A</kbd> / <kbd>F8</kbd>, reject with <kbd>Alt</kbd>+<kbd>2</kbd> / <kbd>Alt</kbd>+<kbd>D</kbd> / <kbd>F9</kbd>, and toggle mute with <kbd>Alt</kbd>+<kbd>M</kbd>.
 - **Auto Re-minimization**: If VS Code was minimized to the taskbar, it receives the approval keystroke and is immediately tucked back into the taskbar (`SW_MINIMIZE`).
 
 
