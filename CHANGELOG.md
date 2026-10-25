@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.2] - 2026-10-25
+
+### 🛡️ Fixed & Improved
+- **Intelligent Tool Approval Filtering**:
+  - Filtered pending actions to only prompt approvals for execution tools requiring user consent (`run_command`, `ask_question`), strictly ignoring passive read-only operations (`read_file`, `search_web`, `grep`, `manage_task`, `invoke_subagent`).
+- **Foreground Document Leakage Protection**:
+  - `send_key_to_vscode` strictly verifies that VS Code is authentically the active foreground window before simulating keystrokes; if focus is blocked, it immediately aborts instead of typing into user documents (e.g., Word, File Explorer, Browser).
+- **Enhanced Multi-Workspace Matching**:
+  - Upgraded target window resolution to inspect Antigravity session SQLite databases (`trajectory_metadata_blob`), active `agy.exe` working directories, and CLI path arguments.
+- **Pipe Buffer Deadlock Prevention in Cloudflare Tunnel**:
+  - Merged `stderr` into `stdout` (`stderr=subprocess.STDOUT`) in `tunnel_manager.py` to prevent Windows OS pipe buffer deadlocks during long sessions.
+  - Added dynamic path locators (`find_cloudflared_exe()`, `find_config_json()`) across dev setups and PyInstaller standalone builds.
+- **Keystroke Deduplication & Auto-Retry**:
+  - Added `(transcript_file, step_index)` tracking to prevent double approvals or looping prompts.
+  - Added 1-second automatic retry in Auto mode if target window focus was momentarily obstructed.
+
 ## [v1.0.1] - 2026-10-09
 
 ### 📱 Added

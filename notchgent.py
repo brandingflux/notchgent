@@ -16,6 +16,8 @@ import json
 import time
 import math
 import threading
+import re
+import sqlite3
 from typing import Optional, Tuple, Dict, Any, List
 
 # Ensure High DPI awareness
@@ -87,7 +89,13 @@ def kill_previous_instance():
         try:
             with open(PID_FILE, "r") as f:
                 old_pid = int(f.read().strip())
-            if old_pid != os.getpid():
+            my_pid = os.getpid()
+            parent_pid = None
+            try:
+                parent_pid = psutil.Process(my_pid).ppid()
+            except Exception:
+                pass
+            if old_pid != my_pid and old_pid != parent_pid:
                 import subprocess
                 subprocess.run(["taskkill", "/F", "/PID", str(old_pid)], capture_output=True)
         except Exception:
@@ -128,6 +136,21 @@ def release_all_modifiers():
             pass
 
 
+# Tools that actually require user confirmation/interaction in Antigravity CLI/IDE
+APPROVAL_REQUIRED_TOOLS = {
+    "run_command", "ask_question"
+}
+
+# Tools that are strictly read-only and never require user approval
+READ_ONLY_TOOLS = {
+    "read_file", "read_file_range", "search_web", "fetch_web_page", "list_dir",
+    "view_outline", "view_symbol", "get_definition", "find_by_name", "grep",
+    "inspect_code_element", "codebase_investigation", "read_image_file",
+    "manage_task", "send_message", "schedule", "invoke_subagent",
+    "define_subagent", "manage_subagents", "read_transcript"
+}
+
+
 def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Optional[int], str]:
     """Find the matching VS Code window handle for the given workspace, or None if no match."""
     ensure_default_desktop()
@@ -141,6 +164,7 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
             if win32gui.IsWindowVisible(top_hwnd) or win32gui.IsIconic(top_hwnd):
                 title = win32gui.GetWindowText(top_hwnd)
                 _, pid = win32process.GetWindowThreadProcessId(top_hwnd)
+                pid = pid & 0xFFFFFFFF
                 proc = psutil.Process(pid)
                 pname = proc.name().lower()
                 if "code" in pname and title and "visual studio code" in title.lower():
@@ -157,7 +181,7 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
     if not candidates:
         return None, ""
 
-    # 1. Match candidates strictly against workspace hints (e.g. TTS, notchgent, FFTL-light-astro-theme)
+    # 1. Match candidates strictly against workspace hints (e.g. TTS, notchgent, MYPALV2)
     if workspace_hints:
         hints = [workspace_hints] if isinstance(workspace_hints, str) else list(workspace_hints)
         for h in hints:
@@ -172,20 +196,42 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
                     or t_lower.startswith(f"{h_clean} -")
                     or f"[{h_clean}]" in t_lower
                     or f" {h_clean} " in t_lower
+                    or t_lower.endswith(f"- {h_clean}")
+                    or re.search(r'\b' + re.escape(h_clean) + r'\b', t_lower)
                 ):
                     return hwnd, title
 
-        # Strict Isolation: If workspace hints were given but NONE of the open VS Code windows matched,
-        # DO NOT inject keystrokes into an unrelated VS Code window!
-        return None, ""
+    # 2. Match against active agy.exe process working directory if available
+    try:
+        agy_cwds = []
+        for p in psutil.process_iter(['name']):
+            if p.info['name'] and 'agy' in p.info['name'].lower():
+                try:
+                    proc = psutil.Process(p.pid)
+                    cwd = proc.cwd()
+                    if cwd:
+                        agy_cwds.append(os.path.basename(os.path.normpath(cwd)).lower())
+                except Exception:
+                    pass
+        for cwd_name in agy_cwds:
+            if not cwd_name or len(cwd_name) < 2:
+                continue
+            for hwnd, title, z in candidates:
+                t_lower = title.lower()
+                if (
+                    f"- {cwd_name} -" in t_lower
+                    or t_lower.startswith(f"{cwd_name} -")
+                    or f"[{cwd_name}]" in t_lower
+                    or f" {cwd_name} " in t_lower
+                    or re.search(r'\b' + re.escape(cwd_name) + r'\b', t_lower)
+                ):
+                    return hwnd, title
+    except Exception:
+        pass
 
-    # 2. Only if NO workspace hints were provided at all, and only 1 VS Code window exists:
-    if len(candidates) == 1:
-        return candidates[0][0], candidates[0][1]
-
-    # If multiple VS Code windows exist and we have no hint which one to target, DO NOT guess!
-    return None, ""
-
+    # 3. Fallback: If no hint matched, target the topmost (most recently active) VS Code window
+    # Candidates are in exact MRU (Z-order) so candidates[0] is the active/frontmost VS Code instance
+    return candidates[0][0], candidates[0][1]
 
 def force_foreground_window(hwnd: int) -> bool:
     """Robustly brings hwnd to foreground without stealing focus to menu bar or sticking Alt."""
@@ -199,6 +245,10 @@ def force_foreground_window(hwnd: int) -> bool:
     try:
         ctypes.windll.user32.AllowSetForegroundWindow(-1)
         ctypes.windll.user32.LockSetForegroundWindow(2)  # LSFW_UNLOCK
+
+        # Simulate Alt key release to grant Windows foreground change permission
+        win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
+        win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
 
         fg = win32gui.GetForegroundWindow()
         if fg and win32gui.IsWindow(fg) and fg != hwnd:
@@ -240,6 +290,7 @@ def force_foreground_window(hwnd: int) -> bool:
             try:
                 win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
                 win32gui.SetForegroundWindow(hwnd)
+                win32gui.BringWindowToTop(hwnd)
             except Exception:
                 pass
     finally:
@@ -255,23 +306,13 @@ def send_key_to_vscode(
     notch_hwnd: Optional[int] = None,
     workspace_hints: Optional[List[str]] = None
 ) -> bool:
-    """Send '1' or '2' + Enter to VS Code, occluded behind the user's movie player if active."""
+    """Send '1' or '2' + Enter strictly to VS Code. Never injects into other apps."""
     ensure_default_desktop()
     target_hwnd, title = find_vscode_window(workspace_hints)
-    if not target_hwnd:
+    if not target_hwnd or not win32gui.IsWindow(target_hwnd):
         return False
 
-    was_minimized = win32gui.IsIconic(target_hwnd)
-
-    # Only treat as a movie window if it is an existing, visible window with a title, distinct from VS Code
-    has_movie = bool(
-        movie_hwnd
-        and win32gui.IsWindow(movie_hwnd)
-        and movie_hwnd != target_hwnd
-        and win32gui.GetWindowText(movie_hwnd).strip()
-    )
-
-    was_movie_topmost = False
+    was_minimized = bool(win32gui.IsIconic(target_hwnd))
 
     try:
         # Pre-flight: Ensure any physical or stuck modifier keys are fully cleared
@@ -281,57 +322,39 @@ def send_key_to_vscode(
             time.sleep(0.01)
         release_all_modifiers()
 
-        if has_movie:
-            # 1. Shield: Pin movie window topmost so VS Code cannot flash over it
-            try:
-                ex_style = win32gui.GetWindowLong(movie_hwnd, win32con.GWL_EXSTYLE)
-                was_movie_topmost = bool(ex_style & win32con.WS_EX_TOPMOST)
-                win32gui.SetWindowPos(
-                    movie_hwnd, win32con.HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
-                )
-            except Exception:
-                pass
-
-            # 2. Keep Notchgent HUD above the movie window
-            if notch_hwnd and win32gui.IsWindow(notch_hwnd):
-                try:
-                    win32gui.SetWindowPos(
-                        notch_hwnd, win32con.HWND_TOPMOST,
-                        0, 0, 0, 0,
-                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW
-                    )
-                except Exception:
-                    pass
-
-            # 3. Ensure VS Code is strictly in the standard (non-topmost) Z-band
-            try:
-                win32gui.SetWindowPos(
-                    target_hwnd, win32con.HWND_NOTOPMOST,
-                    0, 0, 0, 0,
-                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
-                )
-            except Exception:
-                pass
-
+        # 1. If VS Code is minimized, restore it
         if was_minimized:
             win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
-            time.sleep(0.04)
+            for _ in range(10):
+                if not win32gui.IsIconic(target_hwnd):
+                    break
+                time.sleep(0.015)
 
-        # 4. Focus VS Code
-        for _ in range(3):
+        # 2. Focus VS Code
+        for _ in range(12):
             if force_foreground_window(target_hwnd):
                 break
             time.sleep(0.02)
 
-        time.sleep(0.03)
+        # 3. CRITICAL SAFEGUARD: Verify that VS Code is genuinely the active foreground window!
+        # If another app (Word, File Explorer, Chrome, etc.) is in the foreground, ABORT IMMEDIATELY.
+        # This completely guarantees we never type '1' or Enter into the user's active documents!
+        current_fg = win32gui.GetForegroundWindow()
+        if current_fg != target_hwnd:
+            if was_minimized:
+                try:
+                    win32gui.ShowWindow(target_hwnd, win32con.SW_MINIMIZE)
+                except Exception:
+                    pass
+            return False
+
+        time.sleep(0.02)
 
         # Pre-keystroke check: ensure all modifiers are up before sending key
         release_all_modifiers()
         time.sleep(0.01)
 
-        # 5. Send keystroke + enter
+        # 4. Send keystroke + enter strictly into VS Code terminal
         vk = ord(key_text[0].upper()) if key_text else ord('1')
         win32api.keybd_event(vk, 0, 0, 0)
         win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
@@ -344,28 +367,24 @@ def send_key_to_vscode(
         win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.04)
 
+        return True
+
     except Exception:
         return False
     finally:
         release_all_modifiers()
 
-        # 1. If VS Code was minimized before, re-minimize it immediately
+        # 1. If VS Code was minimized before, tuck it back into the taskbar immediately
         if was_minimized:
             try:
                 win32gui.ShowWindow(target_hwnd, win32con.SW_MINIMIZE)
             except Exception:
                 pass
 
-        # 2. Restore foreground focus to the user's movie player if one was active
-        if has_movie:
+        # 2. Restore foreground focus to the user's previous working window (Word, Explorer, or Video)
+        if movie_hwnd and win32gui.IsWindow(movie_hwnd) and movie_hwnd != target_hwnd:
             try:
                 force_foreground_window(movie_hwnd)
-                if not was_movie_topmost:
-                    win32gui.SetWindowPos(
-                        movie_hwnd, win32con.HWND_NOTOPMOST,
-                        0, 0, 0, 0,
-                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
-                    )
             except Exception:
                 pass
 
@@ -379,10 +398,6 @@ def send_key_to_vscode(
                 )
             except Exception:
                 pass
-
-        release_all_modifiers()
-
-    return True
 
 
 def get_recent_transcripts(max_age_seconds: int = 1800) -> List[str]:
@@ -403,10 +418,10 @@ def get_recent_transcripts(max_age_seconds: int = 1800) -> List[str]:
 
 
 def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -> List[str]:
-    """Extract candidate workspace/folder names strictly from the tool call arguments and its transcript."""
+    """Extract candidate workspace/folder names from tool call arguments, transcript, and DB."""
     hints = []
     # 1. From path arguments in the current tool call
-    for key in ("Cwd", "TargetFile", "AbsolutePath", "path", "directory"):
+    for key in ("Cwd", "TargetFile", "AbsolutePath", "path", "directory", "Path", "file_path"):
         raw_path = args.get(key)
         if raw_path and isinstance(raw_path, str):
             clean = raw_path.strip('"\'')
@@ -419,7 +434,60 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                     if part not in hints:
                         hints.append(part)
 
-    # 2. Search backwards in this SPECIFIC transcript_file for recent Cwd or TargetFile
+    # 2. From CommandLine argument (e.g. `cd C:\path\to\proj`, `-Path "C:\path\to\proj"`)
+    cmd = args.get("CommandLine", "")
+    if cmd and isinstance(cmd, str):
+        path_matches = re.findall(r'[A-Za-z]:\\[^\s"\'<>|]+', cmd)
+        for pm in path_matches:
+            norm = os.path.normpath(pm)
+            parts = [p for p in norm.split(os.sep) if p and not p.endswith(":") and p != "."]
+            for part in reversed(parts):
+                if len(part) > 1 and part.lower() not in (
+                    "src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public", ".gemini"
+                ):
+                    if part not in hints:
+                        hints.append(part)
+
+    # 3. Directly from Antigravity conversation database (conversations/<conv_id>.db)
+    if transcript_file and os.path.exists(transcript_file):
+        try:
+            norm = os.path.normpath(transcript_file)
+            parts = norm.split(os.sep)
+            if "brain" in parts:
+                b_idx = parts.index("brain")
+                if b_idx + 1 < len(parts):
+                    conv_id = parts[b_idx + 1]
+                    db_path = os.path.expanduser(f"~/.gemini/antigravity-cli/conversations/{conv_id}.db")
+                    if os.path.exists(db_path):
+                        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                        cur = conn.cursor()
+                        cur.execute("SELECT data FROM trajectory_metadata_blob LIMIT 1;")
+                        row = cur.fetchone()
+                        conn.close()
+                        if row and row[0]:
+                            matches = re.findall(r'file:///([A-Za-z]:/[^\x00-\x1f\"\'<>]+)', row[0].decode('utf-8', errors='ignore'))
+                            for m in matches:
+                                clean_m = m.rstrip('z\x00')
+                                ws_name = os.path.basename(os.path.normpath(clean_m))
+                                if ws_name and len(ws_name) > 1 and ws_name not in hints:
+                                    hints.append(ws_name)
+        except Exception:
+            pass
+
+    # 4. From active agy.exe process working directory
+    try:
+        for p in psutil.process_iter(['name']):
+            if p.info['name'] and 'agy' in p.info['name'].lower():
+                proc = psutil.Process(p.pid)
+                cwd = proc.cwd()
+                if cwd:
+                    ws_name = os.path.basename(os.path.normpath(cwd))
+                    if ws_name and len(ws_name) > 1 and ws_name not in hints:
+                        hints.append(ws_name)
+    except Exception:
+        pass
+
+    # 5. Search backwards in this SPECIFIC transcript_file for recent Cwd, TargetFile, or Path
     if not hints and transcript_file and os.path.exists(transcript_file):
         try:
             with open(transcript_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -429,7 +497,7 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                 f.seek(size - read_size)
                 lines = [l.strip() for l in f.readlines() if l.strip()]
             for line in reversed(lines):
-                if '"Cwd"' in line or '"TargetFile"' in line or '"AbsolutePath"' in line:
+                if '"Cwd"' in line or '"TargetFile"' in line or '"AbsolutePath"' in line or '"Path"' in line:
                     try:
                         obj = json.loads(line)
                         for tc in obj.get("tool_calls", []):
@@ -439,7 +507,7 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                                     a = json.loads(a)
                                 except Exception:
                                     pass
-                            for k in ("Cwd", "TargetFile", "AbsolutePath", "path"):
+                            for k in ("Cwd", "TargetFile", "AbsolutePath", "path", "Path"):
                                 p = a.get(k)
                                 if p and isinstance(p, str):
                                     norm = os.path.normpath(p.strip('"\''))
@@ -480,12 +548,17 @@ def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
         step_idx = last_obj.get("step_index", 0)
         step_type = last_obj.get("type", "")
 
-        # If the last entry is PLANNER_RESPONSE with tool_calls, a tool is awaiting approval!
+        # If the last entry is PLANNER_RESPONSE with tool_calls, check if any tool requires user approval
         if step_type == "PLANNER_RESPONSE" and last_obj.get("tool_calls"):
             tool_call = last_obj["tool_calls"][0]
-            tool_name = tool_call.get("name", "Tool")
-            args = tool_call.get("args", {})
+            raw_tool_name = tool_call.get("name", "Tool")
+            tool_name = raw_tool_name.split(":")[-1]
 
+            # STRICT FILTER: Read-only and non-approval tools NEVER trigger Notchgent approval!
+            if tool_name not in APPROVAL_REQUIRED_TOOLS:
+                return None
+
+            args = tool_call.get("args", {})
             if isinstance(args, str):
                 try:
                     args = json.loads(args)
@@ -505,7 +578,6 @@ def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
         pass
 
     return None
-
 
 class TranscriptWatcher(QObject):
     action_pending = pyqtSignal(dict)  # Emitted when an action is awaiting approval
@@ -597,6 +669,9 @@ class NotchgentHUD(QWidget):
         self.is_muted = self.sound_mode in ("none", "silent", "off", "false", "0")
 
         self.is_sending_keys = False
+        self.dispatched_keys = set()
+        self.current_action_file = ''
+        self.current_action_step = -1
         self._auto_timer: Optional[QTimer] = None
         release_all_modifiers()
 
@@ -1054,6 +1129,14 @@ class NotchgentHUD(QWidget):
         tool_name = action.get("tool_name", "Tool")
         args = action.get("args", {})
         step_idx = action.get("step_index", 0)
+        t_file = action.get("transcript_file", "")
+
+        self.current_action_file = t_file
+        self.current_action_step = step_idx
+
+        # If this exact step was already approved or rejected, do not re-prompt or send keys again
+        if (t_file, step_idx) in self.dispatched_keys:
+            return
 
         self.current_workspace_hints = action.get("workspace_hints", [])
         workspace_display = self.current_workspace_hints[0] if self.current_workspace_hints else ""
@@ -1086,6 +1169,8 @@ class NotchgentHUD(QWidget):
             "run_command": ("terminal", "Shell Command"),
             "replace_file_content": ("file_edit", "Edit File"),
             "write_to_file": ("file_plus", "Create File"),
+            "edit_file": ("file_edit", "Edit File"),
+            "write_file": ("file_plus", "Create File"),
             "ask_question": ("help_circle", "Question")
         }
         icon_name, badge_label = tool_icons.get(tool_name, ("zap", tool_name))
@@ -1097,11 +1182,16 @@ class NotchgentHUD(QWidget):
         if tool_name == "run_command":
             cmd = args.get("CommandLine", "").strip('"')
             details = f"> {cmd}"
-        elif tool_name in ("replace_file_content", "write_to_file"):
-            target = os.path.basename(args.get("TargetFile", "").strip('"'))
-            instr = args.get("Instruction") or args.get("Description") or args.get("toolAction", "")
-            instr = instr.strip('"')
-            details = f"File: {target}\n{instr}"
+        elif tool_name in ("replace_file_content", "write_to_file", "edit_file", "write_file"):
+            target = os.path.basename(args.get("TargetFile", "") or args.get("Path", "")).strip('"')
+            instr = (
+                args.get("Instruction")
+                or args.get("Description")
+                or args.get("toolSummary")
+                or args.get("toolAction", "")
+            )
+            instr = instr.strip('"') if isinstance(instr, str) else ""
+            details = f"File: {target}\n{instr}" if instr else f"File: {target}"
         else:
             details = str(args)
 
@@ -1135,6 +1225,8 @@ class NotchgentHUD(QWidget):
             self.expand()
 
     def on_action_cleared(self):
+        self.current_action_file = ""
+        self.current_action_step = -1
         self.status_dot.setStyleSheet("color: #10b981;")  # Green
         if self.auto_movie_active:
             self.status_label.setText("Auto Active")
@@ -1147,13 +1239,17 @@ class NotchgentHUD(QWidget):
         """Send '1' + Enter to VS Code and show feedback."""
         if getattr(self, "is_sending_keys", False):
             return
+        current_key = (getattr(self, "current_action_file", ""), getattr(self, "current_action_step", -1))
+        if current_key[0] and current_key[1] >= 0:
+            if current_key in self.dispatched_keys:
+                return
         self.is_sending_keys = True
         self.status_label.setText("Sending 1...")
         self.status_dot.setStyleSheet("color: #3b82f6;")
         QApplication.processEvents()
 
-        # Watchdog: if still showing 'Sending' after 3s, safely reset status
-        QTimer.singleShot(3000, self._watchdog_check)
+        # Watchdog: if still showing 'Sending' after 3.5s, safely reset status
+        QTimer.singleShot(3500, self._watchdog_check)
 
         target_movie = self.pending_movie_hwnd or self.last_user_hwnd
         notch_hwnd = int(self.winId())
@@ -1164,13 +1260,17 @@ class NotchgentHUD(QWidget):
         """Send '2' + Enter to VS Code and show feedback."""
         if getattr(self, "is_sending_keys", False):
             return
+        current_key = (getattr(self, "current_action_file", ""), getattr(self, "current_action_step", -1))
+        if current_key[0] and current_key[1] >= 0:
+            if current_key in self.dispatched_keys:
+                return
         self.is_sending_keys = True
         self.status_label.setText("Sending 2...")
         self.status_dot.setStyleSheet("color: #ef4444;")
         QApplication.processEvents()
 
-        # Watchdog: if still showing 'Sending' after 3s, safely reset status
-        QTimer.singleShot(3000, self._watchdog_check)
+        # Watchdog: if still showing 'Sending' after 3.5s, safely reset status
+        QTimer.singleShot(3500, self._watchdog_check)
 
         target_movie = self.pending_movie_hwnd or self.last_user_hwnd
         notch_hwnd = int(self.winId())
@@ -1197,22 +1297,36 @@ class NotchgentHUD(QWidget):
         self.ensure_topmost()
         ws = self.current_workspace_hints[0] if self.current_workspace_hints else ""
         if success:
+            current_key = (getattr(self, "current_action_file", ""), getattr(self, "current_action_step", -1))
+            if current_key[0] and current_key[1] >= 0:
+                self.dispatched_keys.add(current_key)
+                if len(self.dispatched_keys) > 60:
+                    self.dispatched_keys = set(list(self.dispatched_keys)[-30:])
+            self.current_action_file = ''
+            self.current_action_step = -1
             if ws:
                 self.status_label.setText(f"Sent {key_str} ({ws})")
             else:
                 self.status_label.setText(f"Sent {key_str}")
             self.status_dot.setStyleSheet("color: #10b981;")
+            self.remote_server.update_state("idle", None, "", self.auto_movie_active)
+            QTimer.singleShot(1800, self._restore_idle_label)
         else:
-            if ws:
-                self.status_label.setText(f"'{ws}' not found")
-            else:
-                self.status_label.setText("VS Code not found")
+            # Focusing VS Code was not possible or focus was blocked
             self.status_dot.setStyleSheet("color: #f59e0b;")
-        self.remote_server.update_state("idle", None, "", self.auto_movie_active)
-        QTimer.singleShot(1800, self._restore_idle_label)
+            if ws:
+                self.status_label.setText(f"Focusing '{ws}'...")
+            else:
+                self.status_label.setText("Focusing VS Code...")
+            # If in Auto mode, automatically retry after a 1s delay so it unstucks by itself!
+            if self.auto_movie_active and getattr(self, "current_action_file", ""):
+                QTimer.singleShot(1000, self.on_approve_clicked)
 
     def _watchdog_check(self):
         self.is_sending_keys = False
+        self.dispatched_keys = set()
+        self.current_action_file = ''
+        self.current_action_step = -1
         release_all_modifiers()
         if self.status_label.text().startswith("Sending"):
             if self.auto_movie_active:

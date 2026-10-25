@@ -28,8 +28,61 @@ if getattr(sys, "frozen", False):
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
-CLOUDFLARED_EXE = os.path.join(BIN_DIR, "cloudflared.exe")
+
+def find_cloudflared_exe() -> str:
+    """Resolve cloudflared.exe binary path across all dev and PyInstaller runtime layouts."""
+    candidates = []
+    # 1. PyInstaller bundled temp directory (_MEIPASS)
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(os.path.join(sys._MEIPASS, "bin", "cloudflared.exe"))
+        candidates.append(os.path.join(sys._MEIPASS, "cloudflared.exe"))
+
+    # 2. Executable folder (e.g. dist/ or installed location)
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, "bin", "cloudflared.exe"))
+        candidates.append(os.path.join(exe_dir, "cloudflared.exe"))
+        candidates.append(os.path.join(exe_dir, "..", "bin", "cloudflared.exe"))
+
+    # 3. Project / source directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(base_dir, "bin", "cloudflared.exe"))
+    candidates.append(os.path.join(base_dir, "cloudflared.exe"))
+    candidates.append(os.path.join(base_dir, "..", "bin", "cloudflared.exe"))
+
+    # 4. Global PATH
+    import shutil
+    which_path = shutil.which("cloudflared")
+    if which_path:
+        candidates.append(which_path)
+
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return os.path.abspath(p)
+
+    return os.path.join(base_dir, "bin", "cloudflared.exe")
+
+
+def find_config_json() -> str:
+    """Resolve config.json location across dev and bundled runtime."""
+    candidates = []
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(os.path.join(sys._MEIPASS, "config.json"))
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, "config.json"))
+        candidates.append(os.path.join(exe_dir, "..", "config.json"))
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(base_dir, "config.json"))
+    candidates.append(os.path.join(base_dir, "..", "config.json"))
+
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return os.path.abspath(p)
+    return os.path.join(base_dir, "config.json")
+
+
+CLOUDFLARED_EXE = find_cloudflared_exe()
 
 
 def get_local_lan_ip() -> str:
@@ -78,7 +131,7 @@ class TunnelManager:
 
     def _load_config_tunnel_settings(self):
         """Read optional custom tunnel token or URL from config.json."""
-        cfg_path = os.path.join(SCRIPT_DIR, "config.json")
+        cfg_path = find_config_json()
         if os.path.exists(cfg_path):
             try:
                 with open(cfg_path, "r", encoding="utf-8") as f:
@@ -92,7 +145,7 @@ class TunnelManager:
 
     def is_available(self) -> bool:
         """Check if cloudflared binary is installed."""
-        return os.path.exists(CLOUDFLARED_EXE)
+        return os.path.isfile(find_cloudflared_exe())
 
     def start(self):
         """Start the supervisor thread."""
@@ -138,7 +191,7 @@ class TunnelManager:
                 f"{self.public_url}/api/health",
                 headers={"User-Agent": "Notchgent-Tunnel-Watchdog/1.0"}
             )
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with urllib.request.urlopen(req, timeout=8.0) as resp:
                 if resp.status == 200:
                     return True
         except Exception:
@@ -147,7 +200,8 @@ class TunnelManager:
 
     def _supervisor_loop(self):
         """Main loop that continuously maintains, monitors, and restarts the tunnel."""
-        if not os.path.exists(CLOUDFLARED_EXE):
+        cloudflared_exe = find_cloudflared_exe()
+        if not os.path.exists(cloudflared_exe):
             if self.on_status_change:
                 self.on_status_change("cloudflared.exe missing")
             self.is_running = False
@@ -169,7 +223,7 @@ class TunnelManager:
 
             if self.named_token:
                 cmd = [
-                    CLOUDFLARED_EXE,
+                    cloudflared_exe,
                     "tunnel",
                     "run",
                     "--token", self.named_token,
@@ -177,7 +231,7 @@ class TunnelManager:
                 ]
             else:
                 cmd = [
-                    CLOUDFLARED_EXE,
+                    cloudflared_exe,
                     "tunnel",
                     "--url", f"http://127.0.0.1:{self.local_port}",
                     "--no-autoupdate",
@@ -190,10 +244,11 @@ class TunnelManager:
             url_discovered_event = threading.Event()
 
             try:
+                # Merge stderr into stdout so reading a single stream never deadlocks OS pipe buffers!
                 self.proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
                     text=True,
                     encoding="utf-8",
                     errors="ignore",
@@ -204,7 +259,7 @@ class TunnelManager:
                     nonlocal discovered_url
                     try:
                         while self.proc and self.proc.poll() is None:
-                            line = self.proc.stderr.readline()
+                            line = self.proc.stdout.readline()
                             if not line:
                                 break
                             m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
@@ -254,8 +309,8 @@ class TunnelManager:
                             consecutive_probe_failures = 0
                         else:
                             consecutive_probe_failures += 1
-                            # If 3 consecutive probes fail (>= 90s of confirmed edge downtime)
-                            if consecutive_probe_failures >= 3:
+                            # If 4 consecutive probes fail (>= 120s of confirmed edge downtime)
+                            if consecutive_probe_failures >= 4:
                                 if self.on_status_change:
                                     self.on_status_change("Tunnel expired, refreshing...")
                                 break

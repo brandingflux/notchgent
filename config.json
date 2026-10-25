@@ -1,5 +1,5 @@
 {
-  "sound": "beep",
+  "sound": "silent",
   "port": 5151,
   "hotkeys": {
     "enabled": true,

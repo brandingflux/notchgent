@@ -567,6 +567,8 @@ MOBILE_HTML_TEMPLATE = """<!DOCTYPE html>
           'run_command': { svg: SVGS.terminal, name: 'Shell Command' },
           'replace_file_content': { svg: SVGS.file_edit, name: 'Edit File' },
           'write_to_file': { svg: SVGS.file_plus, name: 'Create File' },
+          'edit_file': { svg: SVGS.file_edit, name: 'Edit File' },
+          'write_file': { svg: SVGS.file_plus, name: 'Create File' },
           'ask_question': { svg: SVGS.help_circle, name: 'Question' }
         };
 
