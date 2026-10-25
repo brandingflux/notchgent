@@ -399,70 +399,38 @@ def get_recent_transcripts(max_age_seconds: int = 1800) -> List[str]:
 def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -> List[str]:
     """Extract candidate workspace/folder names strictly for this specific transcript."""
     hints = []
-    # 1. From path arguments in the current tool call
-    for key in ("Cwd", "TargetFile", "AbsolutePath", "path", "directory", "Path", "file_path"):
-        raw_path = args.get(key)
-        if raw_path and isinstance(raw_path, str):
-            clean = raw_path.strip('"\'')
-            norm = os.path.normpath(clean)
-            parts = [p for p in norm.split(os.sep) if p and not p.endswith(":") and p != "."]
-            for part in reversed(parts):
-                if len(part) > 1 and part.lower() not in (
-                    "src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public", ".gemini"
-                ):
-                    if part not in hints:
-                        hints.append(part)
-                    break
-    if hints:
-        return hints
-
-    # 2. From CommandLine argument (e.g. `cd C:\path\to\proj`, `-Path "C:\path\to\proj"`)
-    cmd = args.get("CommandLine", "")
-    if cmd and isinstance(cmd, str):
-        path_matches = re.findall(r'[A-Za-z]:\\[^\s"\'<>|]+', cmd)
-        for pm in path_matches:
-            norm = os.path.normpath(pm)
-            parts = [p for p in norm.split(os.sep) if p and not p.endswith(":") and p != "."]
-            for part in reversed(parts):
-                if len(part) > 1 and part.lower() not in (
-                    "src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public", ".gemini"
-                ):
-                    if part not in hints:
-                        hints.append(part)
-                    break
-    if hints:
-        return hints
-
-    # 3. Directly from Antigravity conversation database (conversations/<conv_id>.db)
     conv_id = None
     if transcript_file and os.path.exists(transcript_file):
-        try:
-            norm = os.path.normpath(transcript_file)
-            parts = norm.split(os.sep)
-            if "brain" in parts:
-                b_idx = parts.index("brain")
-                if b_idx + 1 < len(parts):
-                    conv_id = parts[b_idx + 1]
-                    db_path = os.path.expanduser(f"~/.gemini/antigravity-cli/conversations/{conv_id}.db")
-                    if os.path.exists(db_path):
-                        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-                        cur = conn.cursor()
-                        cur.execute("SELECT data FROM trajectory_metadata_blob LIMIT 1;")
-                        row = cur.fetchone()
-                        conn.close()
-                        if row and row[0]:
-                            matches = re.findall(r'file:///([A-Za-z]:/[^\x00-\x1f\"\'<>]+)', row[0].decode('utf-8', errors='ignore'))
-                            for m in matches:
-                                clean_m = m.rstrip('z\x00')
-                                ws_name = os.path.basename(os.path.normpath(clean_m))
-                                if ws_name and len(ws_name) > 1 and ws_name not in hints:
-                                    hints.append(ws_name)
-        except Exception:
-            pass
+        norm = os.path.normpath(transcript_file)
+        parts = norm.split(os.sep)
+        if "brain" in parts:
+            b_idx = parts.index("brain")
+            if b_idx + 1 < len(parts):
+                conv_id = parts[b_idx + 1]
+
+    # Priority 1: Ground Truth from Antigravity session DB (conversations/<conv_id>.db)
+    if conv_id:
+        db_path = os.path.expanduser(f"~/.gemini/antigravity-cli/conversations/{conv_id}.db")
+        if os.path.exists(db_path):
+            try:
+                conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                cur = conn.cursor()
+                cur.execute("SELECT data FROM trajectory_metadata_blob LIMIT 1;")
+                row = cur.fetchone()
+                conn.close()
+                if row and row[0]:
+                    matches = re.findall(r'file:///([A-Za-z]:/[^\x00-\x1f\"\'<>]+)', row[0].decode('utf-8', errors='ignore'))
+                    for m in matches:
+                        clean_m = m.rstrip('z\x00')
+                        ws_name = os.path.basename(os.path.normpath(clean_m))
+                        if ws_name and len(ws_name) > 1 and ws_name not in hints:
+                            hints.append(ws_name)
+            except Exception:
+                pass
     if hints:
         return hints
 
-    # 4. Check specific agy.exe process associated with this conv_id
+    # Priority 2: From active agy.exe process that has this specific conversation open
     if conv_id:
         try:
             for p in psutil.process_iter(['pid', 'name']):
@@ -481,8 +449,40 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                         pass
         except Exception:
             pass
+    if hints:
+        return hints
 
-    # 5. Search backwards in this SPECIFIC transcript_file for recent Cwd, TargetFile, or Path
+    # Priority 3: From Cwd or directory argument in tool call
+    raw_cwd = args.get("Cwd") or args.get("directory")
+    if raw_cwd and isinstance(raw_cwd, str):
+        clean = raw_cwd.strip('"\'')
+        norm = os.path.normpath(clean)
+        ws_name = os.path.basename(norm)
+        if ws_name and len(ws_name) > 1 and ws_name.lower() not in (
+            "src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public", ".gemini"
+        ):
+            hints.append(ws_name)
+            return hints
+
+    # Priority 4: From file path arguments (take DIRNAME, strip wildcards and file extensions)
+    for key in ("TargetFile", "AbsolutePath", "Path", "file_path"):
+        raw_path = args.get(key)
+        if raw_path and isinstance(raw_path, str):
+            clean = raw_path.strip('"\'')
+            clean = re.sub(r'[*?].*$', '', clean)
+            norm = os.path.normpath(clean)
+            if os.path.isfile(norm) or ('.' in os.path.basename(norm) and not os.path.isdir(norm)):
+                norm = os.path.dirname(norm)
+            parts = [p for p in norm.split(os.sep) if p and not p.endswith(":") and p != "."]
+            for part in reversed(parts):
+                if len(part) > 1 and part.lower() not in (
+                    "src", "app", "components", "lib", "node_modules", "pages", "dist", "build", "public", ".gemini", "tech", "documents"
+                ):
+                    if '*' not in part and '?' not in part and '.' not in part:
+                        hints.append(part)
+                        return hints
+
+    # Priority 5: Search backwards in this SPECIFIC transcript_file for recent Cwd
     if not hints and transcript_file and os.path.exists(transcript_file):
         try:
             with open(transcript_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -492,7 +492,7 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                 f.seek(size - read_size)
                 lines = [l.strip() for l in f.readlines() if l.strip()]
             for line in reversed(lines):
-                if '"Cwd"' in line or '"TargetFile"' in line or '"AbsolutePath"' in line or '"Path"' in line:
+                if '"Cwd"' in line or '"directory"' in line:
                     try:
                         obj = json.loads(line)
                         for tc in obj.get("tool_calls", []):
@@ -502,15 +502,13 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                                     a = json.loads(a)
                                 except Exception:
                                     pass
-                            for k in ("Cwd", "TargetFile", "AbsolutePath", "path", "Path"):
+                            for k in ("Cwd", "directory"):
                                 p = a.get(k)
                                 if p and isinstance(p, str):
                                     norm = os.path.normpath(p.strip('"\''))
-                                    parts = [x for x in norm.split(os.sep) if x and not x.endswith(":") and x != "."]
-                                    for part in reversed(parts):
-                                        if len(part) > 1 and part.lower() not in ("src", "app", "components", "lib", "node_modules", ".gemini"):
-                                            if part not in hints:
-                                                hints.append(part)
+                                    ws_name = os.path.basename(norm)
+                                    if ws_name and len(ws_name) > 1 and ws_name.lower() not in ("src", "app", "components", "lib", "node_modules", ".gemini"):
+                                        hints.append(ws_name)
                     except Exception:
                         pass
                 if hints:
