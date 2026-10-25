@@ -201,37 +201,16 @@ def find_vscode_window(workspace_hints: Optional[List[str]] = None) -> Tuple[Opt
                 ):
                     return hwnd, title
 
-    # 2. Match against active agy.exe process working directory if available
-    try:
-        agy_cwds = []
-        for p in psutil.process_iter(['name']):
-            if p.info['name'] and 'agy' in p.info['name'].lower():
-                try:
-                    proc = psutil.Process(p.pid)
-                    cwd = proc.cwd()
-                    if cwd:
-                        agy_cwds.append(os.path.basename(os.path.normpath(cwd)).lower())
-                except Exception:
-                    pass
-        for cwd_name in agy_cwds:
-            if not cwd_name or len(cwd_name) < 2:
-                continue
-            for hwnd, title, z in candidates:
-                t_lower = title.lower()
-                if (
-                    f"- {cwd_name} -" in t_lower
-                    or t_lower.startswith(f"{cwd_name} -")
-                    or f"[{cwd_name}]" in t_lower
-                    or f" {cwd_name} " in t_lower
-                    or re.search(r'\b' + re.escape(cwd_name) + r'\b', t_lower)
-                ):
-                    return hwnd, title
-    except Exception:
-        pass
+        # Strict Multi-Workspace Isolation: If workspace hints were provided but none of the open
+        # VS Code windows matched, DO NOT guess or inject keystrokes into an unrelated VS Code window!
+        return None, ""
 
-    # 3. Fallback: If no hint matched, target the topmost (most recently active) VS Code window
-    # Candidates are in exact MRU (Z-order) so candidates[0] is the active/frontmost VS Code instance
-    return candidates[0][0], candidates[0][1]
+    # 2. If NO workspace hints were provided at all, and exactly 1 VS Code window exists:
+    if len(candidates) == 1:
+        return candidates[0][0], candidates[0][1]
+
+    # If multiple VS Code windows exist and we have no hint which one to target, DO NOT guess!
+    return None, ""
 
 def force_foreground_window(hwnd: int) -> bool:
     """Robustly brings hwnd to foreground without stealing focus to menu bar or sticking Alt."""
@@ -418,7 +397,7 @@ def get_recent_transcripts(max_age_seconds: int = 1800) -> List[str]:
 
 
 def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -> List[str]:
-    """Extract candidate workspace/folder names from tool call arguments, transcript, and DB."""
+    """Extract candidate workspace/folder names strictly for this specific transcript."""
     hints = []
     # 1. From path arguments in the current tool call
     for key in ("Cwd", "TargetFile", "AbsolutePath", "path", "directory", "Path", "file_path"):
@@ -433,6 +412,9 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                 ):
                     if part not in hints:
                         hints.append(part)
+                    break
+    if hints:
+        return hints
 
     # 2. From CommandLine argument (e.g. `cd C:\path\to\proj`, `-Path "C:\path\to\proj"`)
     cmd = args.get("CommandLine", "")
@@ -447,8 +429,12 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                 ):
                     if part not in hints:
                         hints.append(part)
+                    break
+    if hints:
+        return hints
 
     # 3. Directly from Antigravity conversation database (conversations/<conv_id>.db)
+    conv_id = None
     if transcript_file and os.path.exists(transcript_file):
         try:
             norm = os.path.normpath(transcript_file)
@@ -473,19 +459,28 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                                     hints.append(ws_name)
         except Exception:
             pass
+    if hints:
+        return hints
 
-    # 4. From active agy.exe process working directory
-    try:
-        for p in psutil.process_iter(['name']):
-            if p.info['name'] and 'agy' in p.info['name'].lower():
-                proc = psutil.Process(p.pid)
-                cwd = proc.cwd()
-                if cwd:
-                    ws_name = os.path.basename(os.path.normpath(cwd))
-                    if ws_name and len(ws_name) > 1 and ws_name not in hints:
-                        hints.append(ws_name)
-    except Exception:
-        pass
+    # 4. Check specific agy.exe process associated with this conv_id
+    if conv_id:
+        try:
+            for p in psutil.process_iter(['pid', 'name']):
+                if p.info['name'] and 'agy' in p.info['name'].lower():
+                    proc = psutil.Process(p.info['pid'])
+                    try:
+                        open_files = [f.path for f in proc.open_files()]
+                        if any(conv_id in f for f in open_files):
+                            cwd = proc.cwd()
+                            if cwd:
+                                ws_name = os.path.basename(os.path.normpath(cwd))
+                                if ws_name and len(ws_name) > 1 and ws_name not in hints:
+                                    hints.append(ws_name)
+                                    return hints
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     # 5. Search backwards in this SPECIFIC transcript_file for recent Cwd, TargetFile, or Path
     if not hints and transcript_file and os.path.exists(transcript_file):
@@ -524,7 +519,6 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
             pass
 
     return hints
-
 
 def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
     """Check if a specific transcript file currently has a pending tool call awaiting approval."""
