@@ -138,7 +138,13 @@ def release_all_modifiers():
 
 # Tools that actually require user confirmation/interaction in Antigravity CLI/IDE
 APPROVAL_REQUIRED_TOOLS = {
-    "run_command", "ask_question"
+    "run_command",
+    "edit_file",
+    "write_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "write_to_file",
+    "ask_question"
 }
 
 # Tools that are strictly read-only and never require user approval
@@ -379,21 +385,49 @@ def send_key_to_vscode(
                 pass
 
 
-def get_recent_transcripts(max_age_seconds: int = 1800) -> List[str]:
-    """Find all transcript.jsonl files modified within max_age_seconds (default 30 mins)."""
+def get_active_and_recent_transcripts(max_age_seconds: int = 3600) -> List[str]:
+    """Find all transcript paths for running agy processes AND recently modified transcripts."""
+    transcripts = []
+    seen = set()
+
+    # 1. From currently running agy processes (100% real-time priority)
+    try:
+        for p in psutil.process_iter(['pid', 'name']):
+            if p.info['name'] and 'agy' in p.info['name'].lower():
+                try:
+                    proc = psutil.Process(p.info['pid'])
+                    for f in proc.open_files():
+                        if "conversations" in f.path and f.path.endswith(".db"):
+                            conv_id = os.path.splitext(os.path.basename(f.path))[0]
+                            t_path = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{conv_id}/.system_generated/logs/transcript.jsonl")
+                            t_norm = os.path.normcase(os.path.normpath(t_path))
+                            if os.path.exists(t_path) and t_norm not in seen:
+                                seen.add(t_norm)
+                                transcripts.append(t_path)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Add recently modified transcripts across brain directory
     pattern = os.path.join(BRAIN_DIR, "*", ".system_generated", "logs", "transcript.jsonl")
-    files = glob.glob(pattern)
     now = time.time()
     recent = []
-    for f in files:
-        try:
-            mtime = os.path.getmtime(f)
-            if (now - mtime) <= max_age_seconds:
-                recent.append((f, mtime))
-        except Exception:
-            pass
+    for f in glob.glob(pattern):
+        f_norm = os.path.normcase(os.path.normpath(f))
+        if f_norm not in seen:
+            try:
+                mtime = os.path.getmtime(f)
+                if (now - mtime) <= max_age_seconds:
+                    recent.append((f, mtime, f_norm))
+            except Exception:
+                pass
     recent.sort(key=lambda x: x[1], reverse=True)
-    return [f[0] for f in recent]
+    for f, _, f_norm in recent:
+        seen.add(f_norm)
+        transcripts.append(f)
+
+    return transcripts
 
 
 def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -> List[str]:
@@ -482,43 +516,10 @@ def extract_workspace_hints(args: dict, transcript_file: Optional[str] = None) -
                         hints.append(part)
                         return hints
 
-    # Priority 5: Search backwards in this SPECIFIC transcript_file for recent Cwd
-    if not hints and transcript_file and os.path.exists(transcript_file):
-        try:
-            with open(transcript_file, "r", encoding="utf-8", errors="ignore") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                read_size = min(size, 32768)
-                f.seek(size - read_size)
-                lines = [l.strip() for l in f.readlines() if l.strip()]
-            for line in reversed(lines):
-                if '"Cwd"' in line or '"directory"' in line:
-                    try:
-                        obj = json.loads(line)
-                        for tc in obj.get("tool_calls", []):
-                            a = tc.get("args", {})
-                            if isinstance(a, str):
-                                try:
-                                    a = json.loads(a)
-                                except Exception:
-                                    pass
-                            for k in ("Cwd", "directory"):
-                                p = a.get(k)
-                                if p and isinstance(p, str):
-                                    norm = os.path.normpath(p.strip('"\''))
-                                    ws_name = os.path.basename(norm)
-                                    if ws_name and len(ws_name) > 1 and ws_name.lower() not in ("src", "app", "components", "lib", "node_modules", ".gemini"):
-                                        hints.append(ws_name)
-                    except Exception:
-                        pass
-                if hints:
-                    break
-        except Exception:
-            pass
-
     return hints
 
-def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
+
+def check_transcript_pending_action(transcript_path: str, dispatched_map: Optional[dict] = None) -> Optional[dict]:
     """Check if a specific transcript file currently has a pending tool call awaiting approval."""
     if not transcript_path or not os.path.exists(transcript_path):
         return None
@@ -529,16 +530,34 @@ def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
             size = f.tell()
             if size == 0:
                 return None
-            read_size = min(size, 8192)
+            read_size = min(size, 65536)
             f.seek(size - read_size)
             lines = [l.strip() for l in f.readlines() if l.strip()]
 
         if not lines:
             return None
 
-        last_obj = json.loads(lines[-1])
+        # Read backward to find the latest valid JSON object
+        last_obj = None
+        for line in reversed(lines):
+            try:
+                candidate = json.loads(line)
+                last_obj = candidate
+                break
+            except Exception:
+                continue
+
+        if not last_obj:
+            return None
+
         step_idx = last_obj.get("step_index", 0)
         step_type = last_obj.get("type", "")
+
+        # If this exact step was already dispatched by Notchgent, it is NOT pending!
+        if dispatched_map is not None:
+            dispatch_key = (os.path.normcase(os.path.normpath(transcript_path)), step_idx)
+            if dispatch_key in dispatched_map:
+                return None
 
         # If the last entry is PLANNER_RESPONSE with tool_calls, check if any tool requires user approval
         if step_type == "PLANNER_RESPONSE" and last_obj.get("tool_calls"):
@@ -546,7 +565,7 @@ def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
             raw_tool_name = tool_call.get("name", "Tool")
             tool_name = raw_tool_name.split(":")[-1]
 
-            # STRICT FILTER: Read-only and non-approval tools NEVER trigger Notchgent approval!
+            # STRICT FILTER: Only tools that prompt user approval trigger Notchgent!
             if tool_name not in APPROVAL_REQUIRED_TOOLS:
                 return None
 
@@ -571,18 +590,30 @@ def check_transcript_pending_action(transcript_path: str) -> Optional[dict]:
 
     return None
 
+
 class TranscriptWatcher(QObject):
     action_pending = pyqtSignal(dict)  # Emitted when an action is awaiting approval
-    action_cleared = pyqtSignal()      # Emitted when agent is idle or finished
+    action_cleared = pyqtSignal()      # Emitted when all agents are idle or finished
 
     def __init__(self):
         super().__init__()
         self.currently_pending = False
         self.last_pending_key = None
+        self.dispatched_map = {}  # (norm_t_path, step_idx) -> timestamp
+
+    def mark_dispatched(self, t_file: str, step_idx: int):
+        """Mark a step as dispatched so it is never re-prompted."""
+        norm_key = (os.path.normcase(os.path.normpath(t_file)), step_idx)
+        self.dispatched_map[norm_key] = time.time()
+        # LRU cleanup: keep size bounded
+        if len(self.dispatched_map) > 200:
+            oldest = sorted(self.dispatched_map.keys(), key=lambda k: self.dispatched_map[k])[:50]
+            for k in oldest:
+                del self.dispatched_map[k]
 
     def check_for_updates(self):
-        recent_transcripts = get_recent_transcripts(max_age_seconds=1800)
-        if not recent_transcripts:
+        active_transcripts = get_active_and_recent_transcripts()
+        if not active_transcripts:
             if self.currently_pending:
                 self.currently_pending = False
                 self.last_pending_key = None
@@ -590,14 +621,14 @@ class TranscriptWatcher(QObject):
             return
 
         active_pending = []
-        for t_file in recent_transcripts[:8]:
-            act = check_transcript_pending_action(t_file)
+        for t_file in active_transcripts:
+            act = check_transcript_pending_action(t_file, self.dispatched_map)
             if act:
                 active_pending.append(act)
 
         if active_pending:
             action = active_pending[0]
-            key = (action["transcript_file"], action["step_index"])
+            key = (os.path.normcase(os.path.normpath(action["transcript_file"])), action["step_index"])
             if not self.currently_pending or key != self.last_pending_key:
                 self.currently_pending = True
                 self.last_pending_key = key
@@ -1087,7 +1118,7 @@ class NotchgentHUD(QWidget):
         # Poll transcript every 400 milliseconds
         self.poll_timer = QTimer(self)
         self.poll_timer.timeout.connect(self.watcher.check_for_updates)
-        self.poll_timer.start(400)
+        self.poll_timer.start(250)
 
         # Movie mode timer
         self.movie_timer = QTimer(self)
@@ -1127,7 +1158,8 @@ class NotchgentHUD(QWidget):
         self.current_action_step = step_idx
 
         # If this exact step was already approved or rejected, do not re-prompt or send keys again
-        if (t_file, step_idx) in self.dispatched_keys:
+        norm_key = (os.path.normcase(os.path.normpath(t_file)), step_idx)
+        if norm_key in getattr(self.watcher, "dispatched_map", {}):
             return
 
         self.current_workspace_hints = action.get("workspace_hints", [])
@@ -1233,8 +1265,10 @@ class NotchgentHUD(QWidget):
             return
         current_key = (getattr(self, "current_action_file", ""), getattr(self, "current_action_step", -1))
         if current_key[0] and current_key[1] >= 0:
-            if current_key in self.dispatched_keys:
+            norm_key = (os.path.normcase(os.path.normpath(current_key[0])), current_key[1])
+            if norm_key in getattr(self.watcher, "dispatched_map", {}):
                 return
+            self.watcher.mark_dispatched(current_key[0], current_key[1])
         self.is_sending_keys = True
         self.status_label.setText("Sending 1...")
         self.status_dot.setStyleSheet("color: #3b82f6;")
@@ -1254,8 +1288,10 @@ class NotchgentHUD(QWidget):
             return
         current_key = (getattr(self, "current_action_file", ""), getattr(self, "current_action_step", -1))
         if current_key[0] and current_key[1] >= 0:
-            if current_key in self.dispatched_keys:
+            norm_key = (os.path.normcase(os.path.normpath(current_key[0])), current_key[1])
+            if norm_key in getattr(self.watcher, "dispatched_map", {}):
                 return
+            self.watcher.mark_dispatched(current_key[0], current_key[1])
         self.is_sending_keys = True
         self.status_label.setText("Sending 2...")
         self.status_dot.setStyleSheet("color: #ef4444;")
@@ -1291,9 +1327,7 @@ class NotchgentHUD(QWidget):
         if success:
             current_key = (getattr(self, "current_action_file", ""), getattr(self, "current_action_step", -1))
             if current_key[0] and current_key[1] >= 0:
-                self.dispatched_keys.add(current_key)
-                if len(self.dispatched_keys) > 60:
-                    self.dispatched_keys = set(list(self.dispatched_keys)[-30:])
+                self.watcher.mark_dispatched(current_key[0], current_key[1])
             self.current_action_file = ''
             self.current_action_step = -1
             if ws:
@@ -1302,6 +1336,8 @@ class NotchgentHUD(QWidget):
                 self.status_label.setText(f"Sent {key_str}")
             self.status_dot.setStyleSheet("color: #10b981;")
             self.remote_server.update_state("idle", None, "", self.auto_movie_active)
+            # Check immediately if another session in the queue is waiting for approval!
+            QTimer.singleShot(400, self.watcher.check_for_updates)
             QTimer.singleShot(1800, self._restore_idle_label)
         else:
             # Focusing VS Code was not possible or focus was blocked
